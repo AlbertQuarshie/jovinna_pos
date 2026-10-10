@@ -167,21 +167,74 @@ class ProductDialog(QDialog):
         self.accept()
 
 
+# (label, sort key, descending)
+SORTS = [
+    ("Name A–Z", "name", False), ("Name Z–A", "name", True),
+    ("Price: low to high", "price", False), ("Price: high to low", "price", True),
+    ("Stock: low to high", "stock", False), ("Stock: high to low", "stock", True),
+    ("Category", "category", False), ("Newest first", "newest", True),
+]
+STOCK_FILTERS = ["All stock levels", "In stock", "Low stock", "Out of stock"]
+# table column -> sort key, for clicking the column headers
+COLUMN_SORT = {1: "name", 2: "barcode", 3: "category", 4: "cost", 5: "price", 6: "stock", 7: "status"}
+
+
+def stock_state(p: Product) -> str:
+    if p.stock_qty <= 0:
+        return "Out of stock"
+    return "Low stock" if p.stock_qty <= p.reorder_level else "In stock"
+
+
+def sort_value(p: Product, key: str):
+    cat = p.category.name.lower() if p.category else "~"  # products without a category go last
+    return {
+        "name": p.name.lower(), "barcode": p.barcode, "category": (cat, p.name.lower()),
+        "cost": p.cost_price, "price": p.selling_price, "stock": p.stock_qty, "newest": p.id,
+        "status": (not p.is_active, ["Out of stock", "Low stock", "In stock"].index(stock_state(p))),
+    }[key]
+
+
 class ProductsView(QWidget):
     COLUMNS = ["", "Name", "Barcode", "Category", "Cost", "Price", "Stock", "Status"]
 
     def __init__(self):
         super().__init__()
-        self.products: list[Product] = []
+        self.all_products: list[Product] = []
+        self.products: list[Product] = []  # what the table currently shows, in order
+        self.sort_key, self.sort_desc = "name", False
 
+        # ---- filter bar ----
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search by name or scan barcode…")
+        self.search.setPlaceholderText("Search name, barcode or category…")
         self.search.addAction(theme.icon("magnifying-glass"), QLineEdit.ActionPosition.LeadingPosition)
         self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self.refresh)
-        self.show_inactive = QCheckBox("Show hidden")
-        self.show_inactive.toggled.connect(self.refresh)
+        self.search.textChanged.connect(self.apply_filters)
 
+        self.category_filter = QComboBox()
+        self.category_filter.setMinimumWidth(170)
+        self.category_filter.currentIndexChanged.connect(self.apply_filters)
+        self.stock_filter = QComboBox()
+        self.stock_filter.addItems(STOCK_FILTERS)
+        self.stock_filter.currentIndexChanged.connect(self.apply_filters)
+        self.sort_box = QComboBox()
+        for label, *_ in SORTS:
+            self.sort_box.addItem(theme.icon("sort-ascending"), label)
+        self.sort_box.currentIndexChanged.connect(self.on_sort_chosen)
+        self.show_inactive = QCheckBox("Show hidden")
+        self.show_inactive.toggled.connect(self.apply_filters)
+        reset_btn = theme.button("", "x", "ghost", "Clear all filters")
+        reset_btn.clicked.connect(self.reset_filters)
+
+        filters = QHBoxLayout()
+        filters.setSpacing(8)
+        filters.addWidget(self.search, 1)
+        filters.addWidget(self.category_filter)
+        filters.addWidget(self.stock_filter)
+        filters.addWidget(self.sort_box)
+        filters.addWidget(self.show_inactive)
+        filters.addWidget(reset_btn)
+
+        # ---- actions ----
         add_btn = theme.button("Add product", "plus", "primary")
         edit_btn = theme.button("Edit", "pencil-simple")
         stock_btn = theme.button("Add stock", "stack")
@@ -194,10 +247,13 @@ class ProductsView(QWidget):
         labels_btn.clicked.connect(self.on_print_labels)
         self.toggle_btn.clicked.connect(self.on_toggle_active)
 
+        self.count_label = QLabel()
+        self.count_label.setTextFormat(Qt.TextFormat.RichText)
+        self.count_label.setProperty("role", "muted")
         top = QHBoxLayout()
         top.setSpacing(8)
-        top.addWidget(self.search, 1)
-        top.addWidget(self.show_inactive)
+        top.addWidget(self.count_label)
+        top.addStretch()
         for b in (edit_btn, stock_btn, labels_btn, self.toggle_btn, add_btn):
             top.addWidget(b)
 
@@ -215,27 +271,117 @@ class ProductsView(QWidget):
         self.table.setShowGrid(False)
         self.table.doubleClicked.connect(self.on_edit)
         self.table.itemSelectionChanged.connect(self.update_toggle_label)
+        header = self.table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self.on_header_clicked)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        layout.addLayout(filters)
         layout.addLayout(top)
         layout.addWidget(self.table)
 
         self.refresh()
 
     def showEvent(self, event):
-        # Stock changes after sales on the POS tab, so reload whenever this tab is opened
+        # Stock changes after sales on the Sell page, so reload whenever this page is opened
         super().showEvent(event)
         self.refresh()
 
+    # ---- loading, filtering, sorting ----
     def refresh(self):
-        self.products = ps.search_products(self.search.text(), self.show_inactive.isChecked())
-        self.table.setRowCount(len(self.products))
-        theme.clear_image_cache()
+        """Reload products from the database, then filter and sort them."""
+        self.all_products = ps.search_products("", include_inactive=True)
+        current = self.category_filter.currentText()
+        names = ["All categories"] + sorted({p.category.name for p in self.all_products if p.category})
+        if names != [self.category_filter.itemText(i) for i in range(self.category_filter.count())]:
+            self.category_filter.blockSignals(True)
+            self.category_filter.clear()
+            self.category_filter.addItems(names)
+            self.category_filter.setCurrentText(current if current in names else "All categories")
+            self.category_filter.blockSignals(False)
+        self.apply_filters()
+
+    def filtered(self) -> list[Product]:
+        words = self.search.text().lower().split()
+        category = self.category_filter.currentText()
+        stock = self.stock_filter.currentText()
+        result = []
+        for p in self.all_products:
+            if not p.is_active and not self.show_inactive.isChecked():
+                continue
+            if category not in ("", "All categories") and (p.category.name if p.category else "") != category:
+                continue
+            if stock != STOCK_FILTERS[0] and (not p.is_active or stock_state(p) != stock):
+                continue
+            text = f"{p.name} {p.barcode} {p.category.name if p.category else ''}".lower()
+            if not all(w in text for w in words):
+                continue
+            result.append(p)
+        result.sort(key=lambda p: sort_value(p, self.sort_key), reverse=self.sort_desc)
+        return result
+
+    def apply_filters(self):
+        selected_ids = {p.id for p in self.selected_products()}
+        self.products = self.filtered()
+        self.fill_table()
+        # keep the same products selected after filtering or sorting
         for r, p in enumerate(self.products):
-            low = p.is_active and p.stock_qty <= p.reorder_level
-            status = "Hidden" if not p.is_active else ("LOW STOCK" if low else "OK")
+            if p.id in selected_ids:
+                self.table.selectRow(r)
+
+        total = sum(1 for p in self.all_products if p.is_active or self.show_inactive.isChecked())
+        low = sum(1 for p in self.all_products if p.is_active and stock_state(p) != "In stock")
+        shown = f"{len(self.products)} products" if len(self.products) == total \
+            else f"Showing {len(self.products)} of {total} products"
+        self.count_label.setText(shown + (f"   ·   <span style='color:{theme.DANGER}'>{low} low or out of stock</span>"
+                                          if low else ""))
+
+        column = next((c for c, k in COLUMN_SORT.items() if k == self.sort_key), -1)
+        order = Qt.SortOrder.DescendingOrder if self.sort_desc else Qt.SortOrder.AscendingOrder
+        self.table.horizontalHeader().setSortIndicator(column, order)
+
+    def on_sort_chosen(self, index: int):
+        _, self.sort_key, self.sort_desc = SORTS[index]
+        self.apply_filters()
+
+    def on_header_clicked(self, column: int):
+        key = COLUMN_SORT.get(column)
+        if key is None:
+            return
+        # same column again flips the order; a new column starts ascending
+        self.sort_desc = (not self.sort_desc) if key == self.sort_key else False
+        self.sort_key = key
+        match = next((i for i, (_, k, d) in enumerate(SORTS) if k == key and d == self.sort_desc), None)
+        if match is not None:
+            self.sort_box.blockSignals(True)
+            self.sort_box.setCurrentIndex(match)
+            self.sort_box.blockSignals(False)
+        self.apply_filters()
+
+    def reset_filters(self):
+        for w in (self.search, self.category_filter, self.stock_filter, self.show_inactive):
+            w.blockSignals(True)
+        self.search.clear()
+        self.category_filter.setCurrentIndex(0)
+        self.stock_filter.setCurrentIndex(0)
+        self.show_inactive.setChecked(False)
+        for w in (self.search, self.category_filter, self.stock_filter, self.show_inactive):
+            w.blockSignals(False)
+        self.apply_filters()
+
+    def fill_table(self):
+        self.table.setUpdatesEnabled(False)
+        self.table.clearSelection()
+        self.table.setRowCount(len(self.products))
+        for r, p in enumerate(self.products):
+            state = stock_state(p)
+            low = p.is_active and state != "In stock"
+            status = "Hidden" if not p.is_active else state
+            state_colour = theme.FAINT if not p.is_active else {
+                "Out of stock": theme.DANGER, "Low stock": theme.ACCENT}.get(state, theme.SUCCESS)
             category = p.category.name if p.category else ""
             values = ["", p.name, p.barcode, category,
                       money(p.cost_price), money(p.selling_price), str(p.stock_qty), status]
@@ -244,14 +390,13 @@ class ProductsView(QWidget):
                 if c in (4, 5, 6):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     item.setFont(theme.mono(13))
-                if c == 7:
-                    item.setForeground(QColor(theme.FAINT if not p.is_active else theme.DANGER if low else theme.SUCCESS))
+                if c == 7 or (c == 6 and low):
+                    item.setForeground(QColor(state_colour))
                 elif not p.is_active:
                     item.setForeground(QColor(theme.FAINT))
-                elif low and c == 6:
-                    item.setForeground(QColor(theme.DANGER))
                 self.table.setItem(r, c, item)
             self.table.item(r, 0).setIcon(QIcon(theme.product_pixmap(p.image_path, p.name, category, 42, 42, 8)))
+        self.table.setUpdatesEnabled(True)
         self.update_toggle_label()
 
     def selected(self) -> Product | None:

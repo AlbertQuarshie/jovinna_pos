@@ -195,7 +195,7 @@ QPushButton[variant="chip"] {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 15px; padding: 5px 14px; color: {MUTED};
 }}
 QPushButton[variant="chip"]:hover {{ color: {TEXT}; }}
-QPushButton[variant="chip"]:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; font-weight: bold; }}
+QPushButton[variant="chip"]:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; }}
 QPushButton[variant="segment"] {{ background: {SURFACE_2}; border: 1px solid {BORDER}; padding: 9px 6px; color: {MUTED}; }}
 QPushButton[variant="segment"]:checked {{ background: {ACCENT_SOFT}; border: 1px solid {ACCENT}; color: {ACCENT}; font-weight: bold; }}
 QPushButton#chargeBtn {{ font-size: 17px; padding: 15px; border-radius: 12px; }}

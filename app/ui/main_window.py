@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
     QStackedWidget, QVBoxLayout, QWidget,
@@ -101,8 +101,13 @@ class MainWindow(QMainWindow):
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         who = QVBoxLayout()
         who.setSpacing(0)
-        name = QLabel(self.user.full_name)
-        name.setStyleSheet("font-weight: bold;")
+        name = QLabel()
+        bold = QFont(theme.FONT_TEXT)
+        bold.setPixelSize(14)
+        bold.setBold(True)
+        name.setFont(bold)
+        name.setText(QFontMetrics(bold).elidedText(self.user.full_name, Qt.TextElideMode.ElideRight, 86))
+        name.setToolTip(self.user.full_name)
         role = QLabel(self.user.role.title())
         role.setProperty("role", "faint")
         who.addWidget(name)

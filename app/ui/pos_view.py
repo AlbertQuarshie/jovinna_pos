@@ -81,11 +81,24 @@ class ProductGrid(QListWidget):
 
     MIN_TILE_W = 156
 
+    def __init__(self):
+        super().__init__()
+        # Always reserve the scrollbar's space: if it came and went as results change, every tile
+        # would resize and the grid would jump.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.empty_label = QLabel("No products match your search.", self.viewport())
+        self.empty_label.setProperty("role", "muted")
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.hide()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         width = self.viewport().width() - 12  # Qt's icon layout needs a little slack to fit the last column
         columns = max(1, width // self.MIN_TILE_W)
-        self.setGridSize(QSize(width // columns, TILE_H))
+        size = QSize(width // columns, TILE_H)
+        if size != self.gridSize():
+            self.setGridSize(size)
+        self.empty_label.setGeometry(0, 40, self.viewport().width(), 40)
 
 
 class CartRow(QFrame):
@@ -182,6 +195,8 @@ class PosView(QWidget):
         self.chips = QButtonGroup(self)
         self.chips.setExclusive(True)
         self.chips.buttonClicked.connect(self.on_category)
+        self.results_label = QLabel()
+        self.results_label.setProperty("role", "faint")
         col.addLayout(self.chips_row)
 
         self.grid = ProductGrid()
@@ -197,21 +212,17 @@ class PosView(QWidget):
         self.grid.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.grid.itemClicked.connect(lambda item: self.add_to_cart(item.data(Qt.ItemDataRole.UserRole)))
         col.addWidget(self.grid, 1)
-
-        self.empty_grid = QLabel("No products match your search.")
-        self.empty_grid.setProperty("role", "muted")
-        self.empty_grid.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_grid.hide()
-        col.addWidget(self.empty_grid)
         return col
 
     def _rebuild_chips(self):
+        names = ["All"] + sorted({p.category.name for p in self.products if p.category})
+        if names == [b.text() for b in self.chips.buttons()]:
+            return  # same categories: keep the existing buttons
         for b in self.chips.buttons():
             self.chips.removeButton(b)
             b.deleteLater()
         while self.chips_row.count():
             self.chips_row.takeAt(0)
-        names = ["All"] + sorted({p.category.name for p in self.products if p.category})
         if self.category not in names:
             self.category = "All"
         for name in names:
@@ -221,6 +232,7 @@ class PosView(QWidget):
             self.chips.addButton(chip)
             self.chips_row.addWidget(chip)
         self.chips_row.addStretch()
+        self.chips_row.addWidget(self.results_label)
 
     # ---- right: cart and payment ----
     def _build_cart_panel(self) -> QFrame:
@@ -300,7 +312,8 @@ class PosView(QWidget):
         paid_row = QHBoxLayout()
         self.paid_input = QLineEdit()
         self.paid_input.setFont(theme.mono(15))
-        self.paid_input.setPlaceholderText("Amount received")
+        self.paid_input.setPlaceholderText("Paid")
+        self.paid_input.setToolTip("Amount received from the customer")
         self.paid_input.textChanged.connect(self.refresh_totals)
         self.paid_input.returnPressed.connect(self.on_checkout)
         paid_row.addWidget(self.paid_input, 1)
@@ -359,9 +372,24 @@ class PosView(QWidget):
         self.scan_input.setFocus()
 
     def load_products(self):
-        theme.clear_image_cache()
-        self.products = [p for p in ps.search_products("")]
+        products = ps.search_products("")
+        # Only rebuild the tiles when something visible changed (price, stock, photo, name…)
+        signature = [(p.id, p.name, p.barcode, str(p.selling_price), p.stock_qty, p.reorder_level, p.image_path,
+                      p.category.name if p.category else "") for p in products]
+        if signature == getattr(self, "_signature", None):
+            return
+        self._signature = signature
+        self.products = products
         self._rebuild_chips()
+
+        self.grid.setUpdatesEnabled(False)
+        self.grid.clear()
+        for p in products:
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, p)
+            item.setToolTip(f"{p.name}\nBarcode: {p.barcode}")
+            self.grid.addItem(item)
+        self.grid.setUpdatesEnabled(True)
         self.filter_grid()
 
     def on_category(self, button):
@@ -369,23 +397,37 @@ class PosView(QWidget):
         self.filter_grid()
         self.scan_input.setFocus()
 
+    def _matches(self, p: Product, words: list[str]) -> bool:
+        # Typing searches every product; the category buttons only filter when the box is empty
+        if not words and self.category != "All" and not (p.category and p.category.name == self.category):
+            return False
+        haystack = f"{p.name} {p.category.name if p.category else ''}".lower()
+        # every typed word must appear somewhere ("blue pen" finds "Blue Ballpoint Pen"),
+        # or the text is the start of a barcode
+        return all(w in haystack for w in words) or (len(words) == 1 and p.barcode.startswith(words[0]))
+
     def visible_products(self) -> list[Product]:
-        text = self.scan_input.text().strip().lower()
-        return [
-            p for p in self.products
-            if (self.category == "All" or (p.category and p.category.name == self.category))
-            and (not text or text in p.name.lower() or p.barcode.startswith(text))
-        ]
+        words = self.scan_input.text().lower().split()
+        return [p for p in self.products if self._matches(p, words)]
 
     def filter_grid(self):
-        self.grid.clear()
-        shown = self.visible_products()
-        for p in shown:
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, p)
-            item.setToolTip(f"{p.name}\nBarcode: {p.barcode}")
-            self.grid.addItem(item)
-        self.empty_grid.setVisible(not shown)
+        """Show or hide existing tiles — no rebuilding, so typing and category clicks don't flicker."""
+        words = self.scan_input.text().lower().split()
+        shown = 0
+        self.grid.setUpdatesEnabled(False)
+        for row in range(self.grid.count()):
+            visible = self._matches(self.grid.item(row).data(Qt.ItemDataRole.UserRole), words)
+            self.grid.setRowHidden(row, not visible)
+            shown += visible
+        self.grid.setUpdatesEnabled(True)
+        self.grid.scrollToTop()
+        self.grid.empty_label.setVisible(shown == 0)
+        total = len(self.products)
+        query = self.scan_input.text().strip()
+        if query:
+            self.results_label.setText(f"{shown} result{'s' if shown != 1 else ''} for “{query}” in all products")
+        else:
+            self.results_label.setText(f"{total} products" if shown == total else f"{shown} of {total} products")
 
     # ---- cart actions ----
     def on_scan(self):
@@ -501,7 +543,7 @@ class PosView(QWidget):
     def on_method_changed(self, _button=None):
         cash = self.payment_method() == "cash"
         self.paid_input.setEnabled(cash)
-        self.paid_input.setPlaceholderText("Amount received" if cash else "Paid in full by " + self.payment_method())
+        self.paid_input.setPlaceholderText("Paid" if cash else "Paid in full by " + self.payment_method())
         if not cash:
             self.paid_input.clear()
         for b in self.quick_cash:
