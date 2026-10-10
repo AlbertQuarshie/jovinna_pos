@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.user = user
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)  # free it on log out
-        self.setWindowTitle(f"{config.SHOP_NAME} — POS")
+        self.setWindowTitle(f"{config.APP_NAME}  ·  {config.SHOP_NAME}")
         self.resize(1280, 800)
         self.setMinimumSize(1100, 680)
 

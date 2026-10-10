@@ -33,7 +33,7 @@ class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.user: User | None = None
-        self.setWindowTitle(f"{config.SHOP_NAME} — Log in")
+        self.setWindowTitle(f"{config.APP_NAME} — Log in")
         self.setMinimumWidth(400)
 
         self.username = QLineEdit()
