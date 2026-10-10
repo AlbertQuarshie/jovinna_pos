@@ -8,3 +8,5 @@ data/labels/
 data/receipts/
 data/product_images/
 data/backups/
+data/app.lock
+installer_output/

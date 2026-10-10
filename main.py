@@ -1,4 +1,11 @@
+import os
 import sys
+import tempfile
+from pathlib import Path
+
+if "--self-test" in sys.argv and not os.environ.get("JOVINNA_DATA_DIR"):
+    # Must happen before app.config is imported, so the self-test never touches real shop data
+    os.environ["JOVINNA_DATA_DIR"] = str(Path(tempfile.mkdtemp(prefix="jovinna_selftest_")) / "data")
 
 from PySide6.QtCore import QLockFile, QTimer
 from PySide6.QtGui import QIcon
@@ -82,6 +89,9 @@ class App:
 
 
 def main():
+    if "--self-test" in sys.argv:
+        from app.self_test import run
+        sys.exit(run())
     sys.exit(App().run())
 
 
