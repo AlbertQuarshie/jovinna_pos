@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         if user.role == "admin":
             pages += [
                 ("package", "Products", "Prices, stock, photos and barcode labels", ProductsView()),
-                ("chart-bar", "Reports", "Sales, profit and end-of-day cash-up", ReportsView()),
+                ("chart-bar", "Reports", "Sales, best sellers and end-of-day cash-up", ReportsView()),
                 ("users", "Users", "Staff accounts and passwords", UsersView()),
             ]
         self.pages = pages

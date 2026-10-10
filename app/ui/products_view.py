@@ -45,7 +45,6 @@ class ProductDialog(QDialog):
         self.category = QComboBox()
         self.category.setEditable(True)  # type a new name to create a category
         self.category.addItems([c.name for c in ps.list_categories()])
-        self.cost = QLineEdit("0")
         self.price = QLineEdit()
         self.stock = QSpinBox()
         self.stock.setRange(0, 1_000_000)
@@ -57,8 +56,7 @@ class ProductDialog(QDialog):
         form.addRow("Barcode:", barcode_row)
         form.addRow("Name:", self.name)
         form.addRow("Category:", self.category)
-        form.addRow(f"Cost price ({config.CURRENCY}):", self.cost)
-        form.addRow(f"Selling price ({config.CURRENCY}):", self.price)
+        form.addRow(f"Price ({config.CURRENCY}):", self.price)
         form.addRow("Stock qty:", self.stock)
         form.addRow("Low-stock alert at:", self.reorder)
 
@@ -103,7 +101,6 @@ class ProductDialog(QDialog):
             self.barcode.setText(product.barcode)
             self.name.setText(product.name)
             self.category.setCurrentText(product.category.name if product.category else "")
-            self.cost.setText(str(product.cost_price))
             self.price.setText(str(product.selling_price))
             self.stock.setValue(product.stock_qty)
             self.reorder.setValue(product.reorder_level)
@@ -149,16 +146,15 @@ class ProductDialog(QDialog):
 
     def on_save(self):
         try:
-            cost = Decimal(self.cost.text().replace(",", "").strip() or "0")
             price = Decimal(self.price.text().replace(",", "").strip())
         except InvalidOperation:
-            QMessageBox.warning(self, "Invalid price", "Enter prices as numbers, e.g. 150 or 99.50")
+            QMessageBox.warning(self, "Invalid price", "Enter the price as a number, for example 150 or 99.50")
             return
         try:
             ps.save_product(
                 self.product.id if self.product else None,
                 barcode=self.barcode.text(), name=self.name.text(),
-                category_name=self.category.currentText(), cost_price=cost, selling_price=price,
+                category_name=self.category.currentText(), selling_price=price,
                 stock_qty=self.stock.value(), reorder_level=self.reorder.value(), image=self.image,
             )
         except ps.ProductError as e:
@@ -176,7 +172,7 @@ SORTS = [
 ]
 STOCK_FILTERS = ["All stock levels", "In stock", "Low stock", "Out of stock"]
 # table column -> sort key, for clicking the column headers
-COLUMN_SORT = {1: "name", 2: "barcode", 3: "category", 4: "cost", 5: "price", 6: "stock", 7: "status"}
+COLUMN_SORT = {1: "name", 2: "barcode", 3: "category", 4: "price", 5: "stock", 6: "status"}
 
 
 def stock_state(p: Product) -> str:
@@ -189,13 +185,13 @@ def sort_value(p: Product, key: str):
     cat = p.category.name.lower() if p.category else "~"  # products without a category go last
     return {
         "name": p.name.lower(), "barcode": p.barcode, "category": (cat, p.name.lower()),
-        "cost": p.cost_price, "price": p.selling_price, "stock": p.stock_qty, "newest": p.id,
+        "price": p.selling_price, "stock": p.stock_qty, "newest": p.id,
         "status": (not p.is_active, ["Out of stock", "Low stock", "In stock"].index(stock_state(p))),
     }[key]
 
 
 class ProductsView(QWidget):
-    COLUMNS = ["", "Name", "Barcode", "Category", "Cost", "Price", "Stock", "Status"]
+    COLUMNS = ["", "Name", "Barcode", "Category", "Price", "Stock", "Status"]
 
     def __init__(self):
         super().__init__()
@@ -384,13 +380,13 @@ class ProductsView(QWidget):
                 "Out of stock": theme.DANGER, "Low stock": theme.ACCENT}.get(state, theme.SUCCESS)
             category = p.category.name if p.category else ""
             values = ["", p.name, p.barcode, category,
-                      money(p.cost_price), money(p.selling_price), str(p.stock_qty), status]
+                      money(p.selling_price), str(p.stock_qty), status]
             for c, v in enumerate(values):
                 item = QTableWidgetItem(v)
-                if c in (4, 5, 6):
+                if c in (4, 5):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     item.setFont(theme.mono(13))
-                if c == 7 or (c == 6 and low):
+                if c == 6 or (c == 5 and low):
                     item.setForeground(QColor(state_colour))
                 elif not p.is_active:
                     item.setForeground(QColor(theme.FAINT))

@@ -15,7 +15,7 @@ from app.services.receipt_service import create_receipt_pdf, last_sale_id
 from app.services.sales_service import CartLine, SaleError, complete_sale, find_product
 from app.ui import theme
 
-PAYMENT_METHODS = [("cash", "Cash", "money"), ("mobile", "Mobile", "device-mobile"), ("card", "Card", "credit-card")]
+PAYMENT_METHODS = [("cash", "Cash", "money"), ("mobile", "Mobile money", "device-mobile")]
 TILE_W, TILE_H, IMG_H = 164, 214, 120
 
 

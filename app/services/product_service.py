@@ -65,7 +65,7 @@ def generate_internal_barcode() -> str:
 
 
 def save_product(product_id: int | None, *, barcode: str, name: str, category_name: str,
-                 cost_price: Decimal, selling_price: Decimal, stock_qty: int,
+                 selling_price: Decimal, stock_qty: int,
                  reorder_level: int, image: str | None | object = KEEP) -> None:
     """image: new photo file name (from image_service.import_image), None to remove it, or KEEP."""
     barcode, name = barcode.strip(), name.strip()
@@ -73,8 +73,6 @@ def save_product(product_id: int | None, *, barcode: str, name: str, category_na
         raise ProductError("Barcode and name are required.")
     if selling_price <= 0:
         raise ProductError("Selling price must be greater than zero.")
-    if selling_price < cost_price:
-        raise ProductError("Selling price is below cost price.")
 
     category_id = get_or_create_category(category_name)
     with SessionLocal() as session, session.begin():
@@ -86,7 +84,8 @@ def save_product(product_id: int | None, *, barcode: str, name: str, category_na
         product.barcode = barcode
         product.name = name
         product.category_id = category_id
-        product.cost_price = cost_price
+        if product.cost_price is None:
+            product.cost_price = Decimal("0")  # cost prices aren't tracked
         product.selling_price = selling_price
         product.stock_qty = stock_qty
         product.reorder_level = reorder_level

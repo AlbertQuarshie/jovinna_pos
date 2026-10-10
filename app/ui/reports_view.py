@@ -106,10 +106,10 @@ class ReportsView(QWidget):
 
         # Summary cards
         self.cards = {key: StatCard(title, icon_name, colour) for key, title, icon_name, colour in [
-            ("revenue", f"Sales ({config.CURRENCY})", "money", theme.ACCENT),
-            ("profit", f"Profit ({config.CURRENCY})", "trend-up", theme.SUCCESS),
-            ("count", "Transactions", "receipt", "#85B7EB"),
-            ("items", "Items sold", "shopping-bag", "#AFA9EC"),
+            ("revenue", f"Total sales ({config.CURRENCY})", "chart-bar", theme.ACCENT),
+            ("cash", f"Cash ({config.CURRENCY})", "money", theme.SUCCESS),
+            ("mobile", f"Mobile money ({config.CURRENCY})", "device-mobile", "#85B7EB"),
+            ("count", "Transactions", "receipt", "#AFA9EC"),
         ]}
         cards = QGridLayout()
         cards.setSpacing(12)
@@ -119,7 +119,7 @@ class ReportsView(QWidget):
         # Detail tabs
         self.sales_table = make_table(["Receipt", "Date & time", "Cashier", "Items", "Total", "Payment"], 2)
         self.sales_table.doubleClicked.connect(self.on_open_receipt)
-        self.top_table = make_table(["Barcode", "Product", "Qty sold", "Sales", "Profit"], 1)
+        self.top_table = make_table(["Barcode", "Product", "Qty sold", "Sales"], 1)
         self.payment_table = make_table(["Payment method", "Transactions", "Amount"])
         self.cashier_table = make_table(["Cashier", "Transactions", "Amount"])
         self.low_table = make_table(["Barcode", "Product", "In stock", "Alert level"], 1)
@@ -194,18 +194,21 @@ class ReportsView(QWidget):
     def refresh(self):
         start, end = self.date_range()
         s = rs.summary(start, end)
+        payments = {m: (n, t) for m, n, t in rs.by_payment_method(start, end)}
         self.cards["revenue"].set(money(s.revenue), f"Discounts given: {money(s.discounts)}")
-        self.cards["profit"].set(money(s.profit), f"Margin: {s.margin_pct:.1f}%")
-        self.cards["count"].set(str(s.sales_count), f"Average sale: {money(s.average_sale)}")
-        self.cards["items"].set(str(s.items_sold), "")
+        for key in ("cash", "mobile"):
+            n, t = payments.get(key, (0, Decimal("0")))
+            self.cards[key].set(money(t), f"{n} sale{'s' if n != 1 else ''}")
+        self.cards["count"].set(str(s.sales_count),
+                                f"{s.items_sold} items  ·  average {money(s.average_sale)}")
 
         fill_table(self.sales_table, [
             [f"#{i:06d}", t.strftime("%d/%m/%Y %H:%M"), who, q, money(total), m.title()]
             for i, t, who, q, total, m in rs.sales_list(start, end)
         ], {3, 4})
         fill_table(self.top_table, [
-            [b, n, q, money(r), money(p)] for b, n, q, r, p in rs.top_products(start, end)
-        ], {2, 3, 4})
+            [b, n, q, money(r)] for b, n, q, r, _ in rs.top_products(start, end)
+        ], {2, 3})
         fill_table(self.payment_table, [
             [m.title(), n, money(t)] for m, n, t in rs.by_payment_method(start, end)
         ], {1, 2})

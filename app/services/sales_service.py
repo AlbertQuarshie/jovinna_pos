@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from app.db.database import SessionLocal
 from app.db.models import Product, Sale, SaleItem
@@ -30,7 +31,8 @@ def find_product(code: str) -> Product | None:
     """Look up an active product by exact barcode."""
     with SessionLocal() as session:
         return session.scalar(
-            select(Product).where(Product.barcode == code.strip(), Product.is_active.is_(True))
+            select(Product).options(joinedload(Product.category))
+            .where(Product.barcode == code.strip(), Product.is_active.is_(True))
         )
 
 
