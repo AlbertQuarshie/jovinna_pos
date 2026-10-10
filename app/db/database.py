@@ -1,3 +1,5 @@
+import sqlite3
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import create_engine, select
@@ -14,7 +16,36 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _add_missing_columns()
     _seed_sample_data()
+
+
+# Columns added after the first release. create_all() only creates missing tables, so older
+# databases get these via ALTER TABLE. (To be replaced by Alembic migrations.)
+_NEW_COLUMNS = {
+    "products": {"image_path": "VARCHAR(255)"},
+}
+
+
+def _add_missing_columns() -> None:
+    with engine.connect() as conn:
+        missing = []
+        for table, columns in _NEW_COLUMNS.items():
+            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            missing += [(table, col, sql_type) for col, sql_type in columns.items() if col not in existing]
+    if not missing:
+        return
+
+    # Keep a copy of the database as it was before changing its structure
+    backup_dir = config.DATA_DIR / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = backup_dir / f"jovinna_before_upgrade_{datetime.now():%Y%m%d_%H%M%S}.db"
+    with sqlite3.connect(config.DB_PATH) as src, sqlite3.connect(backup) as dst:
+        src.backup(dst)
+
+    with engine.begin() as conn:
+        for table, col, sql_type in missing:
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {sql_type}")
 
 
 def _seed_sample_data() -> None:

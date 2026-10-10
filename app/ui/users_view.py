@@ -1,4 +1,5 @@
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QHeaderView, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -7,6 +8,25 @@ from PySide6.QtWidgets import (
 
 from app.db.models import User
 from app.services import auth_service as auth
+from app.ui import theme
+
+
+def avatar(name: str, active: bool) -> QPixmap:
+    pm = QPixmap(64, 64)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QColor(theme.ACCENT if active else theme.SURFACE_3))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(0, 0, 64, 64)
+    f = QFont(theme.FONT_TEXT)
+    f.setPixelSize(24)
+    f.setBold(True)
+    p.setFont(f)
+    p.setPen(QColor(theme.ON_ACCENT if active else theme.MUTED))
+    p.drawText(QRectF(0, 0, 64, 64), Qt.AlignmentFlag.AlignCenter, theme.initials(name))
+    p.end()
+    return pm
 
 
 class UserDialog(QDialog):
@@ -43,6 +63,7 @@ class UserDialog(QDialog):
             form.addRow("Password:", self.password)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setProperty("variant", "primary")
         buttons.accepted.connect(self.on_save)
         buttons.rejected.connect(self.reject)
 
@@ -77,6 +98,7 @@ class PasswordDialog(QDialog):
         form.addRow("New password:", self.password)
         form.addRow("Confirm:", self.confirm)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setProperty("variant", "primary")
         buttons.accepted.connect(self.on_save)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
@@ -102,16 +124,17 @@ class UsersView(QWidget):
         super().__init__()
         self.users: list[User] = []
 
-        add_btn = QPushButton("+ Add User")
-        edit_btn = QPushButton("Edit")
-        pw_btn = QPushButton("Reset Password")
+        add_btn = theme.button("Add user", "user-plus", "primary")
+        edit_btn = theme.button("Edit", "pencil-simple")
+        pw_btn = theme.button("Reset password", "key")
         add_btn.clicked.connect(self.on_add)
         edit_btn.clicked.connect(self.on_edit)
         pw_btn.clicked.connect(self.on_reset_password)
         top = QHBoxLayout()
-        for b in (add_btn, edit_btn, pw_btn):
-            top.addWidget(b)
+        top.setSpacing(8)
         top.addStretch()
+        for b in (edit_btn, pw_btn, add_btn):
+            top.addWidget(b)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -120,9 +143,14 @@ class UsersView(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(52)
+        self.table.setIconSize(QSize(32, 32))
+        self.table.setShowGrid(False)
         self.table.doubleClicked.connect(self.on_edit)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
         layout.addLayout(top)
         layout.addWidget(self.table)
         self.refresh()
@@ -135,8 +163,13 @@ class UsersView(QWidget):
                                    "Active" if u.is_active else "Disabled"]):
                 item = QTableWidgetItem(v)
                 if not u.is_active:
-                    item.setForeground(QColor("#999999"))
+                    item.setForeground(QColor(theme.FAINT))
+                elif c == 2 and u.role == "admin":
+                    item.setForeground(QColor(theme.ACCENT))
+                elif c == 3:
+                    item.setForeground(QColor(theme.SUCCESS))
                 self.table.setItem(r, c, item)
+            self.table.item(r, 0).setIcon(QIcon(avatar(u.full_name, u.is_active)))
 
     def selected(self) -> User | None:
         row = self.table.currentRow()

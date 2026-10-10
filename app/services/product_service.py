@@ -5,6 +5,9 @@ from sqlalchemy.orm import joinedload
 
 from app.db.database import SessionLocal
 from app.db.models import Category, Product
+from app.services.image_service import delete_image
+
+KEEP = object()  # save_product(image=KEEP) leaves the current photo unchanged
 
 # EAN-13 codes starting with 200-299 are reserved for in-store use, so they won't clash with
 # manufacturer barcodes already printed on stock.
@@ -63,7 +66,8 @@ def generate_internal_barcode() -> str:
 
 def save_product(product_id: int | None, *, barcode: str, name: str, category_name: str,
                  cost_price: Decimal, selling_price: Decimal, stock_qty: int,
-                 reorder_level: int) -> None:
+                 reorder_level: int, image: str | None | object = KEEP) -> None:
+    """image: new photo file name (from image_service.import_image), None to remove it, or KEEP."""
     barcode, name = barcode.strip(), name.strip()
     if not barcode or not name:
         raise ProductError("Barcode and name are required.")
@@ -87,7 +91,13 @@ def save_product(product_id: int | None, *, barcode: str, name: str, category_na
         product.stock_qty = stock_qty
         product.reorder_level = reorder_level
         product.is_active = True
+        old_image = product.image_path
+        if image is not KEEP:
+            product.image_path = image
         session.add(product)
+
+    if image is not KEEP and old_image and old_image != image:
+        delete_image(old_image)
 
 
 def add_stock(product_id: int, qty: int) -> None:

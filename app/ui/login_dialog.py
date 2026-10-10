@@ -6,16 +6,27 @@ from PySide6.QtWidgets import (
 from app import config
 from app.db.models import User
 from app.services import auth_service as auth
+from app.ui import theme
 
 
 def _title(text: str, sub: str) -> list[QLabel]:
+    first, _, rest = config.SHOP_NAME.partition(" ")
+    logo = QLabel(f'{first.upper()}<span style="color:{theme.ACCENT}"> ●</span>')
+    logo.setObjectName("logo")
+    logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    logo_sub = QLabel(rest.upper())
+    logo_sub.setObjectName("logoSub")
+    logo_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title = QLabel(text)
-    title.setStyleSheet("font-size: 20px; font-weight: bold; color: #1f3a5f;")
+    title.setProperty("role", "section")
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     subtitle = QLabel(sub)
+    subtitle.setProperty("role", "muted")
     subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
     subtitle.setWordWrap(True)
-    return [title, subtitle]
+    spacer = QLabel()
+    spacer.setFixedHeight(10)
+    return [logo, logo_sub, spacer, title, subtitle]
 
 
 class LoginDialog(QDialog):
@@ -23,28 +34,32 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.user: User | None = None
         self.setWindowTitle(f"{config.SHOP_NAME} — Log in")
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(400)
 
         self.username = QLineEdit()
+        self.username.setPlaceholderText("Username")
+        self.username.addAction(theme.icon("user"), QLineEdit.ActionPosition.LeadingPosition)
         self.password = QLineEdit()
+        self.password.setPlaceholderText("Password")
+        self.password.addAction(theme.icon("lock"), QLineEdit.ActionPosition.LeadingPosition)
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.username.returnPressed.connect(self.password.setFocus)
 
-        form = QFormLayout()
-        form.addRow("Username:", self.username)
-        form.addRow("Password:", self.password)
-
-        buttons = QDialogButtonBox()
-        buttons.addButton("Log in", QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.on_login)
-        buttons.rejected.connect(self.reject)
+        login_btn = theme.button("Log in", "sign-in", "primary")
+        login_btn.setObjectName("chargeBtn")
+        login_btn.setDefault(True)
+        login_btn.clicked.connect(self.on_login)  # also the default button, so Enter logs in
 
         layout = QVBoxLayout(self)
-        for w in _title(config.SHOP_NAME, "Log in to start selling"):
+        layout.setContentsMargins(36, 32, 36, 32)
+        layout.setSpacing(10)
+        for w in _title("Welcome back", "Log in to start selling"):
             layout.addWidget(w)
-        layout.addLayout(form)
-        layout.addWidget(buttons)
+        layout.addSpacing(8)
+        layout.addWidget(self.username)
+        layout.addWidget(self.password)
+        layout.addSpacing(6)
+        layout.addWidget(login_btn)
         self.username.setFocus()
 
     def on_login(self):
@@ -80,13 +95,16 @@ class FirstAdminDialog(QDialog):
         form.addRow("Confirm password:", self.confirm)
 
         buttons = QDialogButtonBox()
-        buttons.addButton("Create account", QDialogButtonBox.ButtonRole.AcceptRole)
+        create_btn = buttons.addButton("Create account", QDialogButtonBox.ButtonRole.AcceptRole)
+        create_btn.setProperty("variant", "primary")
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.on_create)
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        for w in _title("Welcome!", "Create the owner (admin) account. The admin can add cashiers, "
+        layout.setContentsMargins(28, 28, 28, 24)
+        layout.setSpacing(10)
+        for w in _title("Welcome", "Create the owner (admin) account. The admin can add cashiers, "
                                     "edit products and prices, and see reports."):
             layout.addWidget(w)
         layout.addLayout(form)

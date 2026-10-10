@@ -6,3 +6,5 @@ build/
 dist/
 data/labels/
 data/receipts/
+data/product_images/
+data/backups/

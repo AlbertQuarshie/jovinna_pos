@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.db.database import init_db
 from app.services.auth_service import has_users
+from app.ui import theme
 from app.ui.login_dialog import FirstAdminDialog, LoginDialog
 from app.ui.main_window import MainWindow
 
@@ -17,6 +18,7 @@ class App:
         self.qt = QApplication(sys.argv)
         self.qt.setApplicationName(config.SHOP_NAME)
         self.qt.setQuitOnLastWindowClosed(False)  # logging out closes the window, not the app
+        theme.apply(self.qt)
         self.window: MainWindow | None = None
 
     def run(self) -> int:

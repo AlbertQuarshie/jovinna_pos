@@ -30,6 +30,7 @@ class Product(Base):
     stock_qty: Mapped[int] = mapped_column(default=0)
     reorder_level: Mapped[int] = mapped_column(default=5)
     is_active: Mapped[bool] = mapped_column(default=True)
+    image_path: Mapped[str | None] = mapped_column(String(255), default=None)  # file name in DATA_DIR/product_images
 
     category: Mapped[Category | None] = relationship(back_populates="products")
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from app import config
 from app.services import report_service as rs
 from app.services.receipt_service import create_receipt_pdf
+from app.ui import theme
 
 
 def money(value: Decimal) -> str:
@@ -27,7 +28,9 @@ def make_table(headers: list[str], stretch_col: int = 0) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     t.verticalHeader().setVisible(False)
+    t.verticalHeader().setDefaultSectionSize(40)
     t.setAlternatingRowColors(True)
+    t.setShowGrid(False)
     return t
 
 
@@ -38,11 +41,12 @@ def fill_table(table: QTableWidget, rows: list[list], numeric_cols: set[int]):
             item = QTableWidgetItem(str(value))
             if c in numeric_cols:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                item.setFont(theme.mono(13))
             table.setItem(r, c, item)
 
 
 class StatCard(QFrame):
-    def __init__(self, title: str):
+    def __init__(self, title: str, icon_name: str, colour: str):
         super().__init__()
         self.setObjectName("statCard")
         self.value = QLabel("—")
@@ -50,9 +54,16 @@ class StatCard(QFrame):
         self.note = QLabel("")
         self.note.setObjectName("statNote")
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        head = QHBoxLayout()
         caption = QLabel(title.upper())
         caption.setObjectName("statTitle")
-        layout.addWidget(caption)
+        badge = QLabel()
+        badge.setPixmap(theme.icon(icon_name, colour).pixmap(22, 22))
+        head.addWidget(caption)
+        head.addStretch()
+        head.addWidget(badge)
+        layout.addLayout(head)
         layout.addWidget(self.value)
         layout.addWidget(self.note)
 
@@ -66,13 +77,6 @@ class ReportsView(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setStyleSheet("""
-            #statCard { background: #f3f6fa; border: 1px solid #dde4ee; border-radius: 8px; }
-            #statTitle { color: #5b6b80; font-size: 11px; font-weight: bold; }
-            #statValue { color: #1f3a5f; font-size: 22px; font-weight: bold; }
-            #statNote { color: #5b6b80; font-size: 12px; }
-        """)
-
         # Period picker
         self.period = QComboBox()
         self.period.addItems(self.PERIODS)
@@ -83,12 +87,13 @@ class ReportsView(QWidget):
             d.setDisplayFormat("dd/MM/yyyy")
             d.setDate(QDate.currentDate())
             d.dateChanged.connect(self.on_custom_dates)
-        refresh_btn = QPushButton("Refresh")
+        refresh_btn = theme.button("Refresh", "arrows-clockwise")
         refresh_btn.clicked.connect(self.refresh)
-        export_btn = QPushButton("Export to Excel (CSV)")
+        export_btn = theme.button("Export to Excel", "export")
         export_btn.clicked.connect(self.on_export)
 
         top = QHBoxLayout()
+        top.setSpacing(8)
         top.addWidget(QLabel("Period:"))
         top.addWidget(self.period)
         top.addWidget(QLabel("From:"))
@@ -100,11 +105,14 @@ class ReportsView(QWidget):
         top.addWidget(export_btn)
 
         # Summary cards
-        self.cards = {key: StatCard(title) for key, title in [
-            ("revenue", f"Sales ({config.CURRENCY})"), ("profit", f"Profit ({config.CURRENCY})"),
-            ("count", "Transactions"), ("items", "Items sold"),
+        self.cards = {key: StatCard(title, icon_name, colour) for key, title, icon_name, colour in [
+            ("revenue", f"Sales ({config.CURRENCY})", "money", theme.ACCENT),
+            ("profit", f"Profit ({config.CURRENCY})", "trend-up", theme.SUCCESS),
+            ("count", "Transactions", "receipt", "#85B7EB"),
+            ("items", "Items sold", "shopping-bag", "#AFA9EC"),
         ]}
         cards = QGridLayout()
+        cards.setSpacing(12)
         for i, card in enumerate(self.cards.values()):
             cards.addWidget(card, 0, i)
 
@@ -118,14 +126,18 @@ class ReportsView(QWidget):
 
         cashup = QWidget()
         cashup_layout = QVBoxLayout(cashup)
-        cashup_layout.addWidget(QLabel("<b>By payment method</b> — cash should match the money in the drawer"))
+        cashup_layout.setContentsMargins(0, 8, 0, 0)
+        cashup_layout.addWidget(QLabel(f"<b>By payment method</b>  <span style='color:{theme.FAINT}'>cash should match the money in the drawer</span>"))
         cashup_layout.addWidget(self.payment_table)
         cashup_layout.addWidget(QLabel("<b>By cashier</b>"))
         cashup_layout.addWidget(self.cashier_table)
 
         sales_tab = QWidget()
         sales_layout = QVBoxLayout(sales_tab)
-        sales_layout.addWidget(QLabel("Double-click a sale to open its receipt."))
+        hint = QLabel("Double-click a sale to open its receipt.")
+        hint.setProperty("role", "faint")
+        sales_layout.setContentsMargins(0, 8, 0, 0)
+        sales_layout.addWidget(hint)
         sales_layout.addWidget(self.sales_table)
 
         self.tabs = QTabWidget()
@@ -135,6 +147,8 @@ class ReportsView(QWidget):
         self.tabs.addTab(self.low_table, "Low stock")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
         layout.addLayout(top)
         layout.addLayout(cards)
         layout.addWidget(self.tabs, 1)
