@@ -6,7 +6,7 @@
 ; uninstalling — so reinstalling or upgrading keeps every product, sale and backup.
 
 #define AppName "Jovinna POS"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define Publisher "Aeternum Devs"
 #define ExeName "JovinnaPOS.exe"
 

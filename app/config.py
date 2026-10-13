@@ -5,7 +5,7 @@ from pathlib import Path
 
 APP_NAME = "Jovinna POS"
 APP_ID = "JovinnaPOS"  # folder and file names, no spaces
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 PUBLISHER = "Aeternum Devs"
 
 SHOP_NAME = "Jovinna General Agencies"
