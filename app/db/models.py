@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Numeric, String
+from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -10,11 +10,17 @@ class Base(DeclarativeBase):
 
 
 class Category(Base):
+    """Two levels: main categories (parent_id is NULL, e.g. Accessories) and their
+    subcategories (e.g. Chargers). A product belongs to a subcategory, or directly to a main one."""
     __tablename__ = "categories"
+    __table_args__ = (UniqueConstraint("parent_id", "name"),)  # "Others" may exist under both mains
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), default=None)
 
+    parent: Mapped["Category | None"] = relationship(remote_side="Category.id", back_populates="children")
+    children: Mapped[list["Category"]] = relationship(back_populates="parent")
     products: Mapped[list["Product"]] = relationship(back_populates="category")
 
 
@@ -33,6 +39,22 @@ class Product(Base):
     image_path: Mapped[str | None] = mapped_column(String(255), default=None)  # file name in DATA_DIR/product_images
 
     category: Mapped[Category | None] = relationship(back_populates="products")
+
+    # Load with joinedload(Product.category).joinedload(Category.parent) before using these
+    @property
+    def main_category(self) -> str:
+        if self.category is None:
+            return ""
+        return self.category.parent.name if self.category.parent else self.category.name
+
+    @property
+    def sub_category(self) -> str:
+        return self.category.name if self.category and self.category.parent else ""
+
+    @property
+    def category_label(self) -> str:
+        """e.g. "Accessories › Chargers", or just "Accessories"."""
+        return " › ".join(x for x in (self.main_category, self.sub_category) if x)
 
 
 class User(Base):

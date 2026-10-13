@@ -53,7 +53,7 @@ def run() -> int:
 
     def sale():
         user = auth_service.create_user("selftest", "Self Test", "test1234", "admin")
-        product_service.save_product(None, barcode="2000000000015", name="Test Item", category_name="Test",
+        product_service.save_product(None, barcode="2000000000015", name="Test Item", main_category="Stationery", subcategory="Test",
                                      selling_price=Decimal("50"), stock_qty=5, reorder_level=1)
         p = find_product("2000000000015")
         s = complete_sale([CartLine(p.id, p.barcode, p.name, Decimal(50), Decimal(0), 2, 5)],

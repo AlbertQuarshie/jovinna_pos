@@ -13,6 +13,7 @@ from app.db.models import Product
 from app.services import image_service as images
 from app.services import product_service as ps
 from app.ui import theme
+from app.ui.import_dialog import ImportDialog
 from app.ui.labels_dialog import LabelsDialog
 
 
@@ -22,6 +23,9 @@ def money(value) -> str:
 
 class ProductDialog(QDialog):
     """Add or edit a single product."""
+
+    last_main = ""
+    last_sub = ""
 
     def __init__(self, parent, product: Product | None = None):
         super().__init__(parent)
@@ -42,9 +46,14 @@ class ProductDialog(QDialog):
         barcode_row.addWidget(gen_btn)
 
         self.name = QLineEdit()
-        self.category = QComboBox()
-        self.category.setEditable(True)  # type a new name to create a category
-        self.category.addItems([c.name for c in ps.list_categories()])
+        self.tree = ps.category_tree()
+        self.main_category = QComboBox()
+        self.main_category.addItems(list(self.tree))
+        self.main_category.currentTextChanged.connect(self.on_main_changed)
+        self.subcategory = QComboBox()
+        self.subcategory.setEditable(True)  # pick one, or type a new name to create it
+        self.subcategory.lineEdit().setPlaceholderText("Choose or type a new one, e.g. Chargers")
+        self.subcategory.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.price = QLineEdit()
         self.stock = QSpinBox()
         self.stock.setRange(0, 1_000_000)
@@ -55,7 +64,8 @@ class ProductDialog(QDialog):
         form = QFormLayout()
         form.addRow("Barcode:", barcode_row)
         form.addRow("Name:", self.name)
-        form.addRow("Category:", self.category)
+        form.addRow("Category:", self.main_category)
+        form.addRow("Subcategory:", self.subcategory)
         form.addRow(f"Price ({config.CURRENCY}):", self.price)
         form.addRow("Stock qty:", self.stock)
         form.addRow("Low-stock alert at:", self.reorder)
@@ -95,27 +105,41 @@ class ProductDialog(QDialog):
         layout.addLayout(body)
         layout.addWidget(buttons)
         self.name.textChanged.connect(self.update_preview)
-        self.category.currentTextChanged.connect(self.update_preview)
 
         if product:
             self.barcode.setText(product.barcode)
             self.name.setText(product.name)
-            self.category.setCurrentText(product.category.name if product.category else "")
+            self.main_category.setCurrentText(product.main_category or self.main_category.itemText(0))
+            self.on_main_changed(self.main_category.currentText())
+            self.subcategory.setCurrentText(product.sub_category)
             self.price.setText(str(product.selling_price))
             self.stock.setValue(product.stock_qty)
             self.reorder.setValue(product.reorder_level)
             self.name.setFocus()
         else:
-            self.category.setCurrentText("")
+            # New products start in the category used last, handy when adding several in a row
+            if ProductDialog.last_main in self.tree:
+                self.main_category.setCurrentText(ProductDialog.last_main)
+            self.on_main_changed(self.main_category.currentText())
+            self.subcategory.setCurrentText(ProductDialog.last_sub if ProductDialog.last_main ==
+                                            self.main_category.currentText() else "")
             self.barcode.setFocus()
+        self.main_category.currentTextChanged.connect(self.update_preview)
         self.update_preview()
+
+    def on_main_changed(self, main: str):
+        """Only offer the subcategories that belong to the chosen main category."""
+        typed = self.subcategory.currentText()
+        self.subcategory.clear()
+        self.subcategory.addItems(self.tree.get(main, []))
+        self.subcategory.setCurrentText(typed if typed in self.tree.get(main, []) else "")
 
     def shown_image(self) -> str | None:
         return self.current_image if self.image is ps.KEEP else self.image
 
     def update_preview(self):
         name = self.name.text().strip() or "New product"
-        self.preview.setPixmap(theme.product_pixmap(self.shown_image(), name, self.category.currentText(), 180, 180, 12))
+        self.preview.setPixmap(theme.product_pixmap(self.shown_image(), name, self.main_category.currentText(), 180, 180, 12))
         self.remove_photo_btn.setVisible(self.shown_image() is not None)
 
     def _discard_new_image(self):
@@ -154,12 +178,15 @@ class ProductDialog(QDialog):
             ps.save_product(
                 self.product.id if self.product else None,
                 barcode=self.barcode.text(), name=self.name.text(),
-                category_name=self.category.currentText(), selling_price=price,
+                main_category=self.main_category.currentText(), subcategory=self.subcategory.currentText(),
+                selling_price=price,
                 stock_qty=self.stock.value(), reorder_level=self.reorder.value(), image=self.image,
             )
         except ps.ProductError as e:
             QMessageBox.warning(self, "Cannot save", str(e))
             return
+        ProductDialog.last_main = self.main_category.currentText()
+        ProductDialog.last_sub = self.subcategory.currentText().strip()
         self.accept()
 
 
@@ -182,7 +209,8 @@ def stock_state(p: Product) -> str:
 
 
 def sort_value(p: Product, key: str):
-    cat = p.category.name.lower() if p.category else "~"  # products without a category go last
+    main_rank = config.MAIN_CATEGORIES.index(p.main_category) if p.main_category in config.MAIN_CATEGORIES         else len(config.MAIN_CATEGORIES) + (0 if p.main_category else 1)  # no category goes last
+    cat = (main_rank, p.main_category.lower(), p.sub_category.lower())
     return {
         "name": p.name.lower(), "barcode": p.barcode, "category": (cat, p.name.lower()),
         "price": p.selling_price, "stock": p.stock_qty, "newest": p.id,
@@ -232,6 +260,8 @@ class ProductsView(QWidget):
 
         # ---- actions ----
         add_btn = theme.button("Add product", "plus", "primary")
+        import_btn = theme.button("Import Excel", "table")
+        import_btn.clicked.connect(self.on_import)
         edit_btn = theme.button("Edit", "pencil-simple")
         stock_btn = theme.button("Add stock", "stack")
         labels_btn = theme.button("Print labels", "barcode")
@@ -250,7 +280,7 @@ class ProductsView(QWidget):
         top.setSpacing(8)
         top.addWidget(self.count_label)
         top.addStretch()
-        for b in (edit_btn, stock_btn, labels_btn, self.toggle_btn, add_btn):
+        for b in (edit_btn, stock_btn, labels_btn, self.toggle_btn, import_btn, add_btn):
             top.addWidget(b)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
@@ -290,29 +320,39 @@ class ProductsView(QWidget):
     def refresh(self):
         """Reload products from the database, then filter and sort them."""
         self.all_products = ps.search_products("", include_inactive=True)
-        current = self.category_filter.currentText()
-        names = ["All categories"] + sorted({p.category.name for p in self.all_products if p.category})
-        if names != [self.category_filter.itemText(i) for i in range(self.category_filter.count())]:
+        # Two-level filter: each main category, then its subcategories indented underneath
+        current = self.category_filter.currentData()
+        # Item data is plain text "main|sub" ("" = all), since Qt doesn't keep Python tuples as-is
+        entries = [("All categories", "")]
+        for main, subs in ps.category_tree().items():
+            entries.append((main, f"{main}|"))
+            entries += [(f"      {sub}", f"{main}|{sub}") for sub in subs]
+        if entries != [(self.category_filter.itemText(i), self.category_filter.itemData(i))
+                       for i in range(self.category_filter.count())]:
             self.category_filter.blockSignals(True)
             self.category_filter.clear()
-            self.category_filter.addItems(names)
-            self.category_filter.setCurrentText(current if current in names else "All categories")
+            for label, data in entries:
+                self.category_filter.addItem(label, data)
+            index = self.category_filter.findData(current)
+            self.category_filter.setCurrentIndex(max(index, 0))
             self.category_filter.blockSignals(False)
         self.apply_filters()
 
     def filtered(self) -> list[Product]:
         words = self.search.text().lower().split()
-        category = self.category_filter.currentText()
+        category = self.category_filter.currentData() or ""  # "" = all, "main|" or "main|sub"
         stock = self.stock_filter.currentText()
         result = []
         for p in self.all_products:
             if not p.is_active and not self.show_inactive.isChecked():
                 continue
-            if category not in ("", "All categories") and (p.category.name if p.category else "") != category:
-                continue
+            if category:
+                main, sub = category.split("|", 1)
+                if p.main_category != main or (sub and p.sub_category != sub):
+                    continue
             if stock != STOCK_FILTERS[0] and (not p.is_active or stock_state(p) != stock):
                 continue
-            text = f"{p.name} {p.barcode} {p.category.name if p.category else ''}".lower()
+            text = f"{p.name} {p.barcode} {p.main_category} {p.sub_category}".lower()
             if not all(w in text for w in words):
                 continue
             result.append(p)
@@ -378,8 +418,7 @@ class ProductsView(QWidget):
             status = "Hidden" if not p.is_active else state
             state_colour = theme.FAINT if not p.is_active else {
                 "Out of stock": theme.DANGER, "Low stock": theme.ACCENT}.get(state, theme.SUCCESS)
-            category = p.category.name if p.category else ""
-            values = ["", p.name, p.barcode, category,
+            values = ["", p.name, p.barcode, p.category_label,
                       money(p.selling_price), str(p.stock_qty), status]
             for c, v in enumerate(values):
                 item = QTableWidgetItem(v)
@@ -391,7 +430,7 @@ class ProductsView(QWidget):
                 elif not p.is_active:
                     item.setForeground(QColor(theme.FAINT))
                 self.table.setItem(r, c, item)
-            self.table.item(r, 0).setIcon(QIcon(theme.product_pixmap(p.image_path, p.name, category, 42, 42, 8)))
+            self.table.item(r, 0).setIcon(QIcon(theme.product_pixmap(p.image_path, p.name, p.main_category, 42, 42, 8)))
         self.table.setUpdatesEnabled(True)
         self.update_toggle_label()
 
@@ -408,6 +447,12 @@ class ProductsView(QWidget):
         hidden = bool(p and not p.is_active)
         self.toggle_btn.setText("Unhide" if hidden else "Hide")
         self.toggle_btn.setIcon(theme.icon("eye" if hidden else "eye-slash", theme.TEXT))
+
+    def on_import(self):
+        dialog = ImportDialog(self)
+        dialog.exec()
+        if dialog.imported:
+            self.refresh()
 
     def on_add(self):
         if ProductDialog(self).exec():

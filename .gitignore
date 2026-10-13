@@ -10,3 +10,5 @@ data/product_images/
 data/backups/
 data/app.lock
 installer_output/
+data/*.db-wal
+data/*.db-shm

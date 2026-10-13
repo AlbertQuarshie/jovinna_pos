@@ -1,8 +1,9 @@
 from decimal import Decimal
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import joinedload, selectinload
 
+from app import config
 from app.db.database import SessionLocal
 from app.db.models import Category, Product
 from app.services.image_service import delete_image
@@ -18,27 +19,47 @@ class ProductError(Exception):
     pass
 
 
-def list_categories() -> list[Category]:
+
+def main_categories() -> list[str]:
+    """Only the shop's main categories (Accessories, Stationery)."""
+    return list(config.MAIN_CATEGORIES)
+
+
+def category_tree() -> dict[str, list[str]]:
+    """{"Accessories": ["Chargers", "Earphones"], "Stationery": [...]}, mains in shop order."""
     with SessionLocal() as session:
-        return list(session.scalars(select(Category).order_by(Category.name)))
+        mains = session.scalars(select(Category).options(selectinload(Category.children))
+                                .where(Category.parent_id.is_(None))).all()
+        tree = {m.name: sorted((c.name for c in m.children), key=str.lower) for m in mains}
+    return {name: tree.get(name, []) for name in config.MAIN_CATEGORIES}
 
 
-def get_or_create_category(name: str) -> int | None:
-    name = name.strip()
-    if not name:
-        return None
-    with SessionLocal() as session, session.begin():
-        cat = session.scalar(select(Category).where(Category.name == name))
-        if cat is None:
-            cat = Category(name=name)
-            session.add(cat)
-            session.flush()
-        return cat.id
+def _category_id(session, main: str, sub: str) -> int | None:
+    """Id of `sub` under `main` (or of `main` itself when sub is blank), creating them if new."""
+    main, sub = main.strip(), sub.strip()
+    if main not in config.MAIN_CATEGORIES:
+        raise ProductError(f"Choose a category: {' or '.join(config.MAIN_CATEGORIES)}.")
+    parent = session.scalar(select(Category).where(Category.name == main, Category.parent_id.is_(None)))
+    if parent is None:
+        parent = Category(name=main)
+        session.add(parent)
+        session.flush()
+    if not sub:
+        return parent.id
+    # Match existing subcategories ignoring capitals, so "chargers" doesn't create a second "Chargers"
+    child = session.scalar(select(Category).where(Category.parent_id == parent.id,
+                                                  func.lower(Category.name) == sub.lower()))
+    if child is None:
+        child = Category(name=sub, parent_id=parent.id)
+        session.add(child)
+        session.flush()
+    return child.id
 
 
 def search_products(text: str = "", include_inactive: bool = False) -> list[Product]:
     with SessionLocal() as session:
-        stmt = select(Product).options(joinedload(Product.category)).order_by(Product.name)
+        stmt = (select(Product).options(joinedload(Product.category).joinedload(Category.parent))
+                .order_by(Product.name))
         if text.strip():
             like = f"%{text.strip()}%"
             stmt = stmt.where(or_(Product.name.ilike(like), Product.barcode.ilike(like)))
@@ -64,7 +85,8 @@ def generate_internal_barcode() -> str:
     return first12 + ean13_check_digit(first12)
 
 
-def save_product(product_id: int | None, *, barcode: str, name: str, category_name: str,
+def save_product(product_id: int | None, *, barcode: str, name: str, main_category: str,
+                 subcategory: str = "",
                  selling_price: Decimal, stock_qty: int,
                  reorder_level: int, image: str | None | object = KEEP) -> None:
     """image: new photo file name (from image_service.import_image), None to remove it, or KEEP."""
@@ -74,8 +96,8 @@ def save_product(product_id: int | None, *, barcode: str, name: str, category_na
     if selling_price <= 0:
         raise ProductError("Selling price must be greater than zero.")
 
-    category_id = get_or_create_category(category_name)
     with SessionLocal() as session, session.begin():
+        category_id = _category_id(session, main_category, subcategory)
         clash = session.scalar(select(Product).where(Product.barcode == barcode))
         if clash and clash.id != product_id:
             raise ProductError(f"Barcode {barcode} is already used by '{clash.name}'.")

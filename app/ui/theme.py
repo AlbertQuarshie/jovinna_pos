@@ -1,5 +1,7 @@
 """Dark theme with amber accents: colours, fonts, icons and the app-wide stylesheet."""
+import tempfile
 from functools import lru_cache
+from pathlib import Path
 
 import qtawesome as qta
 from PySide6.QtCore import QRectF, Qt
@@ -109,7 +111,7 @@ def product_pixmap(image_path: str | None, name: str, category: str, w: int, h: 
         sw, sh = scaled.width() / ratio, scaled.height() / ratio
         p.drawPixmap(QRectF((w - sw) / 2, (h - sh) / 2, sw, sh), scaled, QRectF(scaled.rect()))
     else:
-        bg, fg = tile_colours(category or name)
+        bg, fg = tile_colours(name)  # by name, so neighbouring tiles differ
         p.fillRect(QRectF(0, 0, w, h), QColor(bg))
         f = QFont(FONT_TEXT)
         f.setPixelSize(max(int(min(w, h) * 0.34), 10))
@@ -169,6 +171,7 @@ QLineEdit, QSpinBox, QComboBox, QDateEdit {{
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus {{ border: 1px solid {ACCENT}; }}
 QLineEdit:disabled {{ color: {FAINT}; }}
 QLineEdit#scanInput {{ font-size: 16px; padding: 11px 12px; border-radius: 10px; }}
+QComboBox#mainCategory {{ font-size: 15px; padding: 10px 12px; border-radius: 10px; font-weight: bold; }}
 QComboBox::drop-down, QDateEdit::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{
     background: {SURFACE_2}; border: 1px solid {BORDER}; selection-background-color: {ACCENT_SOFT};
@@ -244,6 +247,14 @@ QCalendarWidget QAbstractItemView {{
 """
 
 
+def _arrow_image() -> str:
+    """Down-arrow for dropdowns, drawn from the icon font into a small PNG the stylesheet can use
+    (stylesheets need an image file; PNG avoids depending on Qt's SVG support)."""
+    path = Path(tempfile.gettempdir()) / f"{config.APP_ID}_caret_down.png"
+    icon("caret-down", MUTED).pixmap(14, 14).save(str(path))
+    return path.as_posix()
+
+
 def apply(app: QApplication) -> None:
     load_fonts()
     app.setStyle("Fusion")  # consistent base so the stylesheet looks the same on every PC
@@ -260,4 +271,7 @@ def apply(app: QApplication) -> None:
         pal.setColor(role, QColor(colour))
     app.setPalette(pal)
     app.setFont(QFont(FONT_TEXT, 10))
-    app.setStyleSheet(stylesheet())
+    arrow = _arrow_image()
+    app.setStyleSheet(stylesheet() + f"""
+QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url("{arrow}"); width: 12px; height: 12px; }}
+""")

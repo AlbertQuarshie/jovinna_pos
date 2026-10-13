@@ -37,6 +37,7 @@ a = Analysis(
         ("assets/fonts", "assets/fonts"),
         ("assets/icon.ico", "assets"),
         ("assets/icon.png", "assets"),
+        ("templates/Jovinna_Products_Template.xlsx", "templates"),
         *collect_data_files("qtawesome"),  # icon fonts
         *collect_data_files("reportlab"),  # PDF fonts used by receipts and labels
     ],

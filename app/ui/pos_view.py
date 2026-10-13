@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from PySide6.QtCore import QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListView,
+    QAbstractItemView, QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListView,
     QListWidget, QListWidgetItem, QMessageBox, QScrollArea, QStyle, QStyledItemDelegate, QVBoxLayout,
     QWidget,
 )
@@ -46,7 +46,7 @@ class ProductTileDelegate(QStyledItemDelegate):
 
         img = QRectF(r.left() + 8, r.top() + 8, r.width() - 16, IMG_H)
         painter.drawPixmap(img.topLeft(), theme.product_pixmap(
-            p.image_path, p.name, p.category.name if p.category else "", int(img.width()), int(img.height())))
+            p.image_path, p.name, p.main_category, int(img.width()), int(img.height())))
 
         name_font = QFont(theme.FONT_TEXT)
         name_font.setPixelSize(13)
@@ -164,7 +164,8 @@ class PosView(QWidget):
         self.user = user
         self.cart: list[CartLine] = []
         self.products: list[Product] = []
-        self.category = "All"
+        self.main = None   # None = all categories, or e.g. "Accessories"
+        self.sub = None    # None = all of the main category, "" = items with no subcategory, or a name
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -188,13 +189,26 @@ class PosView(QWidget):
         self.scan_input.setClearButtonEnabled(True)
         self.scan_input.returnPressed.connect(self.on_scan)
         self.scan_input.textChanged.connect(self.filter_grid)
-        col.addWidget(self.scan_input)
+
+        # Main category first, then its subcategories underneath
+        self.main_box = QComboBox()
+        self.main_box.setObjectName("mainCategory")
+        self.main_box.setMinimumWidth(190)
+        self.main_box.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # keep the scanner's focus on the search box
+        self.main_box.currentIndexChanged.connect(self.on_main_changed)
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+        search_row.addWidget(self.main_box)
+        search_row.addWidget(self.scan_input, 1)
+        col.addLayout(search_row)
 
         self.chips_row = QHBoxLayout()
         self.chips_row.setSpacing(8)
         self.chips = QButtonGroup(self)
         self.chips.setExclusive(True)
-        self.chips.buttonClicked.connect(self.on_category)
+        self.chips.buttonClicked.connect(self.on_sub_clicked)
+        self.chips_hint = QLabel("Choose a category to see its subcategories")
+        self.chips_hint.setProperty("role", "faint")
         self.results_label = QLabel()
         self.results_label.setProperty("role", "faint")
         col.addLayout(self.chips_row)
@@ -214,21 +228,54 @@ class PosView(QWidget):
         col.addWidget(self.grid, 1)
         return col
 
+    def _rebuild_main_box(self):
+        mains = ps.main_categories()
+        entries = [("All categories", None)] + [(m, m) for m in mains]
+        if entries == [(self.main_box.itemText(i), self.main_box.itemData(i)) for i in range(self.main_box.count())]:
+            return
+        self.main_box.blockSignals(True)
+        self.main_box.clear()
+        for label, data in entries:
+            self.main_box.addItem(label, data)
+        if self.main not in mains:
+            self.main, self.sub = None, None
+        self.main_box.setCurrentIndex(max(self.main_box.findData(self.main), 0))
+        self.main_box.blockSignals(False)
+
+    def _sub_options(self) -> list[tuple[str, str | None]]:
+        """(button label, subcategory) for the chosen main category, from the products in it."""
+        if self.main is None:
+            return []
+        in_main = [p for p in self.products if p.main_category == self.main]
+        subs = sorted({p.sub_category for p in in_main if p.sub_category}, key=str.lower)
+        options = [("All", None)] + [(s, s) for s in subs]
+        if any(not p.sub_category for p in in_main):
+            options.append(("Other items", ""))  # products saved without a subcategory
+        return options
+
     def _rebuild_chips(self):
-        names = ["All"] + sorted({p.category.name for p in self.products if p.category})
-        if names == [b.text() for b in self.chips.buttons()]:
-            return  # same categories: keep the existing buttons
+        options = self._sub_options()
+        if [b.property("sub") for b in self.chips.buttons()] == [o[1] for o in options]                 and [b.text() for b in self.chips.buttons()] == [o[0] for o in options] and options:
+            return  # same subcategories: keep the existing buttons (avoids flicker)
         for b in self.chips.buttons():
             self.chips.removeButton(b)
+            b.setParent(None)
             b.deleteLater()
         while self.chips_row.count():
             self.chips_row.takeAt(0)
-        if self.category not in names:
-            self.category = "All"
-        for name in names:
-            chip = theme.button(name, variant="chip")
+        if self.sub not in [o[1] for o in options]:
+            self.sub = None
+        if not options:
+            self.chips_hint.show()
+            self.chips_row.addWidget(self.chips_hint)
+        else:
+            self.chips_hint.hide()
+        for label, sub in options:
+            chip = theme.button(label, variant="chip")
             chip.setCheckable(True)
-            chip.setChecked(name == self.category)
+            chip.setProperty("sub", sub)
+            chip.setChecked(sub == self.sub)
+            chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             self.chips.addButton(chip)
             self.chips_row.addWidget(chip)
         self.chips_row.addStretch()
@@ -375,11 +422,12 @@ class PosView(QWidget):
         products = ps.search_products("")
         # Only rebuild the tiles when something visible changed (price, stock, photo, name…)
         signature = [(p.id, p.name, p.barcode, str(p.selling_price), p.stock_qty, p.reorder_level, p.image_path,
-                      p.category.name if p.category else "") for p in products]
+                      p.category_label) for p in products]
         if signature == getattr(self, "_signature", None):
             return
         self._signature = signature
         self.products = products
+        self._rebuild_main_box()
         self._rebuild_chips()
 
         self.grid.setUpdatesEnabled(False)
@@ -392,16 +440,26 @@ class PosView(QWidget):
         self.grid.setUpdatesEnabled(True)
         self.filter_grid()
 
-    def on_category(self, button):
-        self.category = button.text()
+    def on_main_changed(self, _index=None):
+        self.main = self.main_box.currentData()
+        self.sub = None
+        self._rebuild_chips()
+        self.filter_grid()
+        self.scan_input.setFocus()
+
+    def on_sub_clicked(self, button):
+        self.sub = button.property("sub")
         self.filter_grid()
         self.scan_input.setFocus()
 
     def _matches(self, p: Product, words: list[str]) -> bool:
-        # Typing searches every product; the category buttons only filter when the box is empty
-        if not words and self.category != "All" and not (p.category and p.category.name == self.category):
-            return False
-        haystack = f"{p.name} {p.category.name if p.category else ''}".lower()
+        # Typing searches every product; the category filters only apply when the box is empty
+        if not words:
+            if self.main is not None and p.main_category != self.main:
+                return False
+            if self.sub is not None and p.sub_category != self.sub:
+                return False
+        haystack = f"{p.name} {p.main_category} {p.sub_category}".lower()
         # every typed word must appear somewhere ("blue pen" finds "Blue Ballpoint Pen"),
         # or the text is the start of a barcode
         return all(w in haystack for w in words) or (len(words) == 1 and p.barcode.startswith(words[0]))
@@ -504,7 +562,7 @@ class PosView(QWidget):
         for line in self.cart:
             p = by_id.get(line.product_id)
             self.cart_list.addWidget(CartRow(
-                line, p.image_path if p else None, p.category.name if p and p.category else "",
+                line, p.image_path if p else None, p.main_category if p else "",
                 self.change_qty, self.remove_line,
             ))
         self.cart_list.addStretch()

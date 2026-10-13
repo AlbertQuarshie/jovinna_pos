@@ -15,6 +15,10 @@ SHOP_ADDRESS = "Buruburu Complex Ground Floor, Opposite Buruburu Police Station,
 
 CURRENCY = "KES"
 
+# The shop's main product groups. Always present; subcategories (Chargers, Pens…) are added under
+# them when adding products.
+MAIN_CATEGORIES = ["Accessories", "Stationery"]
+
 RECEIPT_FOOTER = "Welcome Back Anytime"
 
 FROZEN = getattr(sys, "frozen", False)  # True when running as the installed JovinnaPOS.exe
