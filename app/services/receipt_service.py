@@ -101,6 +101,10 @@ def _build_lines(sale: Sale) -> list[tuple]:
         ("pair", f"TOTAL ({config.CURRENCY})", _money(sale.total), MONO_BOLD, 12),
         ("pair", f"Paid ({sale.payment_method.title()})", _money(sale.amount_paid), MONO, 9),
         ("pair", "Change", _money(sale.change_given), MONO, 9),
+        # customer's number partly hidden: 254712345678 -> 0712***678
+        *([("pair", "M-Pesa", f"0{sale.mpesa_phone[3:6]}***{sale.mpesa_phone[-3:]}", MONO, 8)]
+          if sale.mpesa_phone else []),
+        *([("pair", "M-Pesa code", sale.mpesa_receipt, MONO, 8)] if sale.mpesa_receipt else []),
         ("rule",),
         ("pair", "Items", str(sum(i.quantity for i in sale.items)), MONO, 8),
         ("space",),

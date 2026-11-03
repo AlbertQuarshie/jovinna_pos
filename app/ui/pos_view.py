@@ -10,10 +10,12 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.db.models import Product, User
+from app.services import mpesa_service as mpesa
 from app.services import product_service as ps
 from app.services.receipt_service import create_receipt_pdf, last_sale_id
 from app.services.sales_service import CartLine, SaleError, complete_sale, find_product
 from app.ui import theme
+from app.ui.mpesa_dialog import MpesaDialog
 
 PAYMENT_METHODS = [("cash", "Cash", "money"), ("mobile", "Mobile money", "device-mobile")]
 TILE_W, TILE_H, IMG_H = 164, 214, 120
@@ -598,12 +600,24 @@ class PosView(QWidget):
             self.change_label.setText(money(max(change, Decimal("0"))))
         self.charge_btn.setText(f"  Charge  {config.CURRENCY} {money(total)}   (F12)")
 
+    def stk_settings(self) -> mpesa.Settings | None:
+        s = mpesa.load_settings()
+        return s if s.ready else None
+
     def on_method_changed(self, _button=None):
         cash = self.payment_method() == "cash"
-        self.paid_input.setEnabled(cash)
-        self.paid_input.setPlaceholderText("Paid" if cash else "Paid in full by " + self.payment_method())
-        if not cash:
-            self.paid_input.clear()
+        stk = not cash and self.stk_settings() is not None
+        # Mobile money with STK Push: the box takes the customer's phone number instead
+        self.paid_input.setEnabled(cash or stk)
+        self.paid_input.clear()
+        if cash:
+            self.paid_input.setPlaceholderText("Paid")
+            self.paid_input.setToolTip("Amount received from the customer")
+        elif stk:
+            self.paid_input.setPlaceholderText("Customer's M-Pesa number, e.g. 0712 345 678")
+            self.paid_input.setToolTip("The payment prompt is sent to this phone when you click Charge")
+        else:
+            self.paid_input.setPlaceholderText("Paid in full by mobile money")
         for b in self.quick_cash:
             b.setVisible(cash)
         self.refresh_totals()
@@ -621,10 +635,41 @@ class PosView(QWidget):
         paid_text = self.paid_input.text().strip()
         cash = self.payment_method() == "cash"
         paid = self._decimal(paid_text) if (cash and paid_text) else self.total()  # blank = exact amount
+        mpesa_phone = mpesa_ref = mpesa_receipt = None
+        stk_print = None  # Print/No receipt chosen on the M-Pesa confirmation screen
+        settings = None if cash else self.stk_settings()
+        if settings:
+            if not paid_text:
+                answer = QMessageBox.question(
+                    self, "No phone number",
+                    "Enter the customer's M-Pesa number to send them the payment prompt.\n\n"
+                    "Or, if the customer has ALREADY paid to the till and you've seen the "
+                    "M-Pesa message, record the sale as paid?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if answer != QMessageBox.StandardButton.Yes:
+                    self.paid_input.setFocus()
+                    return
+            else:
+                try:
+                    mpesa_phone = mpesa.normalise_phone(paid_text)
+                except mpesa.MpesaError as e:
+                    QMessageBox.warning(self, "Check the number", str(e))
+                    self.paid_input.setFocus()
+                    return
+                dialog = MpesaDialog(self, settings, mpesa_phone, self.total(), f"JGA{(last_sale_id() or 0) + 1}")
+                if not dialog.exec():
+                    self.paid_input.setFocus()
+                    return  # not paid: the cart stays, so the cashier can retry or take cash
+                mpesa_ref = dialog.checkout_id
+                mpesa_receipt = dialog.receipt_code
+                stk_print = dialog.print_receipt
+                paid = Decimal(mpesa.whole_shillings(self.total()))
         try:
             sale = complete_sale(
                 self.cart, amount_paid=paid, payment_method=self.payment_method(),
                 discount=self._decimal(self.discount_input.text()), user_id=self.user.id,
+                mpesa_phone=mpesa_phone, mpesa_ref=mpesa_ref, mpesa_receipt=mpesa_receipt,
             )
         except SaleError as e:
             QMessageBox.warning(self, "Can't complete sale", str(e))
@@ -632,6 +677,12 @@ class PosView(QWidget):
 
         self.clear_cart()
         self.load_products()  # stock levels changed
+
+        if stk_print is not None:  # already confirmed on the M-Pesa screen
+            if stk_print:
+                self.open_receipt(sale.id)
+            self.scan_input.setFocus()
+            return
 
         box = QMessageBox(self)
         box.setWindowTitle("Sale complete")

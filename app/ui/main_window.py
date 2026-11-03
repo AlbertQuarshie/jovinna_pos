@@ -13,6 +13,7 @@ from app.ui import theme
 from app.ui.pos_view import PosView
 from app.ui.products_view import ProductsView
 from app.ui.reports_view import ReportsView
+from app.ui.settings_view import SettingsView
 from app.ui.users_view import UsersView
 
 
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
                 ("package", "Products", "Prices, stock, photos and barcode labels", ProductsView()),
                 ("chart-bar", "Reports", "Sales, best sellers and end-of-day cash-up", ReportsView()),
                 ("users", "Users", "Staff accounts and passwords", UsersView()),
+                ("gear-six", "Settings", "M-Pesa payments", SettingsView()),
             ]
         self.pages = pages
 

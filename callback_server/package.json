@@ -1,0 +1,16 @@
+{
+  "name": "callback_server",
+  "version": "1.0.0",
+  "description": "A tiny Cloudflare Worker that receives Safaricom's STK Push results, so the POS can show and print the **M-Pesa code** (e.g. `TJR4XYZ123`). It runs on Cloudflare's **free plan**.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "wrangler": "^4.157.0"
+  }
+}

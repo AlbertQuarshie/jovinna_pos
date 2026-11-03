@@ -80,6 +80,9 @@ class Sale(Base):
     payment_method: Mapped[str] = mapped_column(String(20), default="cash")  # cash | mobile | card
     amount_paid: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     change_given: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    mpesa_phone: Mapped[str | None] = mapped_column(String(15), default=None)  # 2547XXXXXXXX
+    mpesa_ref: Mapped[str | None] = mapped_column(String(64), default=None)    # STK CheckoutRequestID
+    mpesa_receipt: Mapped[str | None] = mapped_column(String(20), default=None)  # M-Pesa code, e.g. SLK4H7XYZ1
 
     items: Mapped[list["SaleItem"]] = relationship(back_populates="sale", cascade="all, delete-orphan")
     user: Mapped[User | None] = relationship()

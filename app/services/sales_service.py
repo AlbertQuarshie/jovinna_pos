@@ -37,7 +37,9 @@ def find_product(code: str) -> Product | None:
 
 
 def complete_sale(cart: list[CartLine], amount_paid: Decimal, payment_method: str = "cash",
-                  discount: Decimal = Decimal("0"), user_id: int | None = None) -> Sale:
+                  discount: Decimal = Decimal("0"), user_id: int | None = None,
+                  mpesa_phone: str | None = None, mpesa_ref: str | None = None,
+                  mpesa_receipt: str | None = None) -> Sale:
     if not cart:
         raise SaleError("Cart is empty.")
 
@@ -50,6 +52,7 @@ def complete_sale(cart: list[CartLine], amount_paid: Decimal, payment_method: st
         sale = Sale(
             user_id=user_id, subtotal=subtotal, discount=discount, total=total,
             payment_method=payment_method, amount_paid=amount_paid, change_given=amount_paid - total,
+            mpesa_phone=mpesa_phone, mpesa_ref=mpesa_ref, mpesa_receipt=mpesa_receipt,
         )
         for line in cart:
             product = session.get(Product, line.product_id)

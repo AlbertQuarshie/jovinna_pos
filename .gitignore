@@ -12,3 +12,8 @@ data/app.lock
 installer_output/
 data/*.db-wal
 data/*.db-shm
+data/*.secret
+~$*
+data/mpesa.log
+callback_server/node_modules/
+callback_server/.wrangler/

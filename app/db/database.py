@@ -87,7 +87,21 @@ def _v3_only_two_main_categories(db):
             db.execute("UPDATE categories SET parent_id = ? WHERE id = ?", (default_parent, cat_id))
 
 
-MIGRATIONS = [_v1_product_images, _v2_subcategories, _v3_only_two_main_categories]
+def _v4_mpesa_on_sales(db):
+    columns = _columns(db, "sales")
+    if "mpesa_phone" not in columns:
+        db.execute("ALTER TABLE sales ADD COLUMN mpesa_phone VARCHAR(15)")
+    if "mpesa_ref" not in columns:
+        db.execute("ALTER TABLE sales ADD COLUMN mpesa_ref VARCHAR(64)")
+
+
+def _v5_mpesa_receipt_code(db):
+    if "mpesa_receipt" not in _columns(db, "sales"):
+        db.execute("ALTER TABLE sales ADD COLUMN mpesa_receipt VARCHAR(20)")
+
+
+MIGRATIONS = [_v1_product_images, _v2_subcategories, _v3_only_two_main_categories, _v4_mpesa_on_sales,
+              _v5_mpesa_receipt_code]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

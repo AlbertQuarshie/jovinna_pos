@@ -1,0 +1,16 @@
+name = "jovinna-mpesa"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+# The POS and Safaricom reach the server at https://jovinna-mpesa.<subdomain>.workers.dev
+workers_dev = true
+preview_urls = false
+
+# Delete payment records older than 90 days, once a day
+[triggers]
+crons = ["0 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jovinna-mpesa"
+database_id = "374e2c9e-cf04-492f-ba87-7ab658a08240"  # from `npx wrangler d1 create jovinna-mpesa`
