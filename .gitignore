@@ -17,3 +17,4 @@ data/*.secret
 data/mpesa.log
 callback_server/node_modules/
 callback_server/.wrangler/
+data/settings.json

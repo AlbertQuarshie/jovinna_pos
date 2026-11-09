@@ -1,21 +1,203 @@
-from PySide6.QtCore import Qt
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
+from app import config
+from app.services import app_settings, backup_service
 from app.services import mpesa_service as mpesa
 from app.ui import theme
 
 
-class SettingsView(QWidget):
-    """Admin settings. M-Pesa keys are saved encrypted on this computer only."""
+def _panel(title: str, intro: str = "") -> tuple[QFrame, QVBoxLayout]:
+    panel = QFrame()
+    panel.setObjectName("panel")
+    col = QVBoxLayout(panel)
+    col.setContentsMargins(24, 20, 24, 20)
+    col.setSpacing(12)
+    heading = QLabel(title)
+    heading.setProperty("role", "section")
+    col.addWidget(heading)
+    if intro:
+        text = QLabel(intro)
+        text.setWordWrap(True)
+        text.setProperty("role", "muted")
+        col.addWidget(text)
+    return panel, col
+
+
+def _wrap(widget: QWidget, panel: QFrame) -> None:
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(panel)
+
+
+class AppearanceSection(QFrame):
+    def __init__(self):
+        super().__init__()
+        panel, col = _panel("Appearance", "Choose how the app looks on this computer. You can also switch "
+                                          "with the sun / moon button at the top right.")
+        self.buttons = QButtonGroup(self)
+        row = QHBoxLayout()
+        for mode, label, icon_name in (("dark", " Dark", "moon"), ("light", " Light", "sun")):
+            b = theme.button(label, icon_name, "segment")
+            b.setCheckable(True)
+            b.setChecked(theme.MODE == mode)
+            b.setProperty("mode", mode)
+            b.setMinimumWidth(130)
+            self.buttons.addButton(b)
+            row.addWidget(b)
+        row.addStretch()
+        self.buttons.buttonClicked.connect(self.on_pick)
+        col.addLayout(row)
+        _wrap(self, panel)
+
+    def on_pick(self, button):
+        window = self.window()
+        if hasattr(window, "change_theme"):
+            window.change_theme(button.property("mode"))
+
+
+class ShopSection(QFrame):
+    FIELDS = (("shop_name", "Shop name:"), ("shop_tagline", "Tagline:"), ("shop_phone", "Phone:"),
+              ("shop_address", "Address:"), ("receipt_footer", "Receipt message:"))
+
+    def __init__(self):
+        super().__init__()
+        panel, col = _panel("Shop and receipts", "Shown on receipts, barcode labels and the login screen.")
+        self.fields = {key: QLineEdit() for key, _ in self.FIELDS}
+        self.fields["receipt_footer"].setPlaceholderText("e.g. Thank you! Welcome back anytime")
+        form = QFormLayout()
+        form.setVerticalSpacing(10)
+        for key, label in self.FIELDS:
+            form.addRow(label, self.fields[key])
+        col.addLayout(form)
+        save = theme.button("Save", "check", "primary")
+        save.clicked.connect(self.on_save)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(save)
+        col.addLayout(row)
+        _wrap(self, panel)
+        values = app_settings.load()
+        for key, w in self.fields.items():
+            w.setText(values[key] or "")
+
+    def on_save(self):
+        values = {k: w.text().strip() for k, w in self.fields.items()}
+        if not values["shop_name"]:
+            QMessageBox.warning(self, "Shop name", "Enter the shop name.")
+            return
+        app_settings.save(**values)
+        QMessageBox.information(self, "Saved", "Shop details saved. New receipts and labels use them now; "
+                                               "the sidebar name updates next time you log in.")
+
+
+class BackupSection(QFrame):
+    def __init__(self):
+        super().__init__()
+        panel, col = _panel("Backups", "The database is copied automatically when the app opens, every hour "
+                                       "and when it closes. A second copy outside this computer protects "
+                                       "against theft or a broken disk.")
+        self.copy_dir = QLineEdit()
+        self.copy_dir.setPlaceholderText("Optional: a Google Drive folder or a flash drive")
+        browse = theme.button("Browse…", "folder-open")
+        browse.clicked.connect(self.on_browse)
+        dir_row = QHBoxLayout()
+        dir_row.addWidget(self.copy_dir, 1)
+        dir_row.addWidget(browse)
+        self.keep_days = QSpinBox()
+        self.keep_days.setRange(7, 365)
+        self.keep_days.setSuffix(" days")
+        form = QFormLayout()
+        form.setVerticalSpacing(10)
+        form.addRow("Second copy to:", dir_row)
+        form.addRow("Keep backups for:", self.keep_days)
+        col.addLayout(form)
+        self.last = QLabel()
+        self.last.setProperty("role", "faint")
+        self.last.setWordWrap(True)
+        col.addWidget(self.last)
+        open_btn = theme.button("Open folder", "folder-open")
+        open_btn.clicked.connect(self.on_open)
+        now_btn = theme.button("Back up now", "cloud-arrow-up")
+        now_btn.clicked.connect(self.on_backup_now)
+        save = theme.button("Save", "check", "primary")
+        save.clicked.connect(self.on_save)
+        row = QHBoxLayout()
+        row.addStretch()
+        for b in (open_btn, now_btn, save):
+            row.addWidget(b)
+        col.addLayout(row)
+        _wrap(self, panel)
+        values = app_settings.load()
+        self.copy_dir.setText(values["backup_copy_dir"] or "")
+        self.keep_days.setValue(int(values["backup_keep_days"]))
+        self.show_last()
+
+    def show_last(self):
+        latest = backup_service.latest_backup()
+        when = datetime.fromtimestamp(latest.stat().st_mtime).strftime("%d %b %Y, %H:%M") if latest else "never"
+        self.last.setText(f"Last backup: {when}   ·   Saved in {backup_service.DAILY_DIR}")
+
+    def on_browse(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose where to keep a second copy of the backups")
+        if folder:
+            self.copy_dir.setText(folder)
+
+    def on_open(self):
+        backup_service.DAILY_DIR.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(backup_service.DAILY_DIR)))
+
+    def on_save(self):
+        folder = self.copy_dir.text().strip()
+        if folder and not Path(folder).is_dir():
+            QMessageBox.warning(self, "Folder not found", "That folder doesn't exist. Is the flash drive plugged in?")
+            return
+        app_settings.save(backup_copy_dir=folder, backup_keep_days=self.keep_days.value())
+        QMessageBox.information(self, "Saved", "Backup settings saved.")
+
+    def on_backup_now(self):
+        path = backup_service.daily_backup()
+        self.show_last()
+        if path is None:
+            QMessageBox.warning(self, "Backup failed",
+                                f"The backup couldn't be made. Details are in:\n{backup_service.LOG_FILE}")
+            return
+        extra = f"\nA second copy went to {config.BACKUP_COPY_DIR}" if config.BACKUP_COPY_DIR else ""
+        QMessageBox.information(self, "Backed up", f"Saved {path.name}{extra}")
+
+
+class SettingsView(QScrollArea):
+    """Admin settings: appearance, shop details, backups and M-Pesa."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(0, 0, 12, 0)
+        col.setSpacing(16)
+        for section in (AppearanceSection(), ShopSection(), BackupSection(), MpesaSection()):
+            section.setMaximumWidth(760)
+            col.addWidget(section)
+        col.addStretch()
+        self.setWidget(page)
+
+
+class MpesaSection(QFrame):
+    """M-Pesa STK Push. Keys are saved encrypted on this computer only."""
 
     def __init__(self):
         super().__init__()
         panel = QFrame()
         panel.setObjectName("panel")
-        panel.setMaximumWidth(720)
         col = QVBoxLayout(panel)
         col.setContentsMargins(24, 20, 24, 20)
         col.setSpacing(12)
@@ -94,10 +276,7 @@ class SettingsView(QWidget):
         col.addWidget(self.sandbox_note)
         col.addLayout(buttons)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(panel, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        layout.addStretch()
+        _wrap(self, panel)
         self.load()
 
     def load(self):

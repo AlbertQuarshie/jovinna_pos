@@ -1,4 +1,4 @@
-"""Dark theme with amber accents: colours, fonts, icons and the app-wide stylesheet."""
+"""Dark and light themes with amber accents: colours, fonts, icons and the app-wide stylesheet."""
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -11,26 +11,40 @@ from PySide6.QtWidgets import QApplication, QPushButton
 from app import config
 
 # ---- colours ----
-BG = "#161615"          # app background
-SIDEBAR = "#0F0F0E"
-SURFACE = "#1F1F1D"     # panels, cards
-SURFACE_2 = "#282826"   # inputs, tiles
-SURFACE_3 = "#33332F"   # hover
-BORDER = "#393935"
-TEXT = "#F1EFE8"
-MUTED = "#A3A19A"
-FAINT = "#6E6D68"
-ACCENT = "#EF9F27"
-ACCENT_HOVER = "#F7B348"
-ACCENT_SOFT = "#3A2A10"  # amber tint behind selected items
-ON_ACCENT = "#2A1A02"
-DANGER = "#E5534B"
-DANGER_SOFT = "#3A1F1D"
-SUCCESS = "#4CC38A"
+# Two palettes with the same names; set_mode() copies one into the module-level names below, which
+# the rest of the app reads when it builds its screens.
+PALETTES = {
+    "dark": dict(
+        BG="#161615", SIDEBAR="#0F0F0E", SURFACE="#1F1F1D", SURFACE_2="#282826", SURFACE_3="#33332F",
+        BORDER="#393935", ALT_ROW="#222220", ROW_LINE="#262624",
+        TEXT="#F1EFE8", MUTED="#A3A19A", FAINT="#6E6D68",
+        ACCENT="#EF9F27", ACCENT_HOVER="#F7B348", ACCENT_SOFT="#3A2A10", ON_ACCENT="#2A1A02",
+        DANGER="#E5534B", DANGER_SOFT="#3A1F1D", SUCCESS="#4CC38A", INFO="#85B7EB", VIOLET="#AFA9EC",
+        TILE_COLOURS=[("#3A2A10", "#FAC775"), ("#13304A", "#85B7EB"), ("#2E2A52", "#AFA9EC"),
+                      ("#123A2E", "#5DCAA5"), ("#47201A", "#F0997B"), ("#45192C", "#ED93B1")],
+    ),
+    "light": dict(
+        BG="#F5F4F0", SIDEBAR="#FFFFFF", SURFACE="#FFFFFF", SURFACE_2="#F1EFEA", SURFACE_3="#E7E4DC",
+        BORDER="#DCD8CE", ALT_ROW="#FAF9F6", ROW_LINE="#EEEBE4",
+        TEXT="#1F1E1B", MUTED="#5F5E5A", FAINT="#8A8780",
+        # a deeper amber than dark mode, so amber text stays readable on white
+        ACCENT="#B86E00", ACCENT_HOVER="#CC7B05", ACCENT_SOFT="#FCEFD9", ON_ACCENT="#FFFFFF",
+        DANGER="#C2352C", DANGER_SOFT="#FBE4E2", SUCCESS="#1E8A55", INFO="#1D5A9A", VIOLET="#4B42A8",
+        TILE_COLOURS=[("#FCEFD9", "#9A5B00"), ("#E3EEFA", "#1D5A9A"), ("#ECEAFB", "#4B42A8"),
+                      ("#E0F3EB", "#0F6E4C"), ("#FCE7E1", "#A3401E"), ("#FBE6EE", "#9A2E57")],
+    ),
+}
+MODE = "dark"
+globals().update(PALETTES[MODE])
 
-# Placeholder tile colours for products without a photo (background, letters)
-TILE_COLOURS = [("#3A2A10", "#FAC775"), ("#13304A", "#85B7EB"), ("#2E2A52", "#AFA9EC"),
-                ("#123A2E", "#5DCAA5"), ("#47201A", "#F0997B"), ("#45192C", "#ED93B1")]
+
+def set_mode(mode: str) -> None:
+    """Switch palette. Screens built afterwards use the new colours; call apply() to restyle the app."""
+    global MODE
+    MODE = mode if mode in PALETTES else "dark"
+    globals().update(PALETTES[MODE])
+    clear_image_cache()  # placeholder tiles use the palette colours
+
 
 FONT_TEXT = "Space Grotesk"
 FONT_MONO = "JetBrains Mono"
@@ -207,9 +221,9 @@ QPushButton#stepBtn {{ padding: 0; min-width: 26px; max-width: 26px; min-height:
 /* ---- tables & lists ---- */
 QTableWidget, QListWidget {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px;
-    gridline-color: transparent; alternate-background-color: #222220; outline: none;
+    gridline-color: transparent; alternate-background-color: {ALT_ROW}; outline: none;
 }}
-QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid #262624; }}
+QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {ROW_LINE}; }}
 QTableWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
 QHeaderView::section {{
     background: {SURFACE}; color: {FAINT}; border: none; border-bottom: 1px solid {BORDER};
@@ -250,7 +264,7 @@ QCalendarWidget QAbstractItemView {{
 def _arrow_image() -> str:
     """Down-arrow for dropdowns, drawn from the icon font into a small PNG the stylesheet can use
     (stylesheets need an image file; PNG avoids depending on Qt's SVG support)."""
-    path = Path(tempfile.gettempdir()) / f"{config.APP_ID}_caret_down.png"
+    path = Path(tempfile.gettempdir()) / f"{config.APP_ID}_caret_down_{MODE}.png"
     icon("caret-down", MUTED).pixmap(14, 14).save(str(path))
     return path.as_posix()
 

@@ -108,8 +108,8 @@ class ReportsView(QWidget):
         self.cards = {key: StatCard(title, icon_name, colour) for key, title, icon_name, colour in [
             ("revenue", f"Total sales ({config.CURRENCY})", "chart-bar", theme.ACCENT),
             ("cash", f"Cash ({config.CURRENCY})", "money", theme.SUCCESS),
-            ("mobile", f"Mobile money ({config.CURRENCY})", "device-mobile", "#85B7EB"),
-            ("count", "Transactions", "receipt", "#AFA9EC"),
+            ("mobile", f"Mobile money ({config.CURRENCY})", "device-mobile", theme.INFO),
+            ("count", "Transactions", "receipt", theme.VIOLET),
         ]}
         cards = QGridLayout()
         cards.setSpacing(12)

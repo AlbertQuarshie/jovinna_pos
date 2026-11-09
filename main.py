@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app import config
 from app.db.database import engine, init_db
+from app.services import app_settings
 from app.services.auth_service import has_users
 from app.services.backup_service import daily_backup
 from app.ui import theme
@@ -39,6 +40,8 @@ class App:
         self.qt.setOrganizationName(config.PUBLISHER)
         self.qt.setWindowIcon(QIcon(str(config.BASE_DIR / "assets" / "icon.ico")))
         self.qt.setQuitOnLastWindowClosed(False)  # logging out closes the window, not the app
+        app_settings.apply()  # saved shop details and backup options
+        theme.set_mode(app_settings.load()["theme"])
         theme.apply(self.qt)
         self.window: MainWindow | None = None
 
@@ -82,10 +85,26 @@ class App:
         if not dialog.exec():
             self.qt.quit()
             return False
-        self.window = MainWindow(dialog.user)
-        self.window.logged_out.connect(lambda: QTimer.singleShot(0, self.show_login))
-        self.window.show()
+        self.open_window(dialog.user)
         return True
+
+    def open_window(self, user, previous: MainWindow | None = None):
+        window = MainWindow(user)
+        window.logged_out.connect(lambda: QTimer.singleShot(0, self.show_login))
+        window.rebuild_requested.connect(lambda: QTimer.singleShot(0, lambda: self.open_window(user, self.window)))
+        if previous is not None:
+            # Theme switched: carry over the page, the cart and the window position
+            window.pos.cart = previous.pos.cart
+            window.pos.refresh_cart()
+            window.go_to(previous.current_page())
+            window.setGeometry(previous.geometry())
+            if previous.isMaximized():
+                window.showMaximized()
+        self.window = window
+        window.show()
+        if previous is not None:
+            previous._replaced = True
+            previous.close()
 
 
 def main():

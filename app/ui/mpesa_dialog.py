@@ -108,9 +108,13 @@ class MpesaDialog(QDialog):
             return
         try:
             result = self.future.result()
-        except mpesa.MpesaError as e:
-            return self._fail(str(e))
         except Exception as e:  # noqa: BLE001
+            if self.stage == "code":
+                # Already paid; only the M-Pesa code couldn't be fetched — show the confirmation anyway
+                self.future = None
+                return self._confirm()
+            if isinstance(e, mpesa.MpesaError):
+                return self._fail(str(e))
             return self._fail(f"Something went wrong: {e}")
 
         if self.stage == "push":

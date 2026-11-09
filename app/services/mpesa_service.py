@@ -34,21 +34,12 @@ SANDBOX_PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c
 DEFAULT_CALLBACK_URL = "https://example.com/jovinna-pos/mpesa-callback"
 LOG_FILE = config.DATA_DIR / "mpesa.log"
 
-
-def _log(action: str, status: int, body: dict) -> None:
-    """What Safaricom answered (never keys, tokens or passwords), for finding payment problems."""
-    safe = {k: v for k, v in body.items() if k not in ("access_token", "Password")}
-    try:
-        with LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {action:6} HTTP {status}  {json.dumps(safe)}\n")
-    except OSError:
-        pass
 TIMEOUT = 20  # seconds per request
 
-# What the customer did, from the query's ResultCode
 # Codes that mean "no final answer yet" — keep checking
 STILL_PROCESSING = {"4999", "500.001.1001"}
 
+# What the customer did, from the query's ResultCode
 RESULT_MESSAGES = {
     "0": "Paid",
     "1": "The customer doesn't have enough money in M-Pesa",
@@ -58,6 +49,16 @@ RESULT_MESSAGES = {
     "1019": "The request expired before the customer paid",
     "1001": "The customer has another M-Pesa transaction in progress, try again in a moment",
 }
+
+
+def _log(action: str, status: int, body: dict) -> None:
+    """What Safaricom answered (never keys, tokens or passwords), for finding payment problems."""
+    safe = {k: v for k, v in body.items() if k not in ("access_token", "Password")}
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {action:6} HTTP {status}  {json.dumps(safe)}\n")
+    except OSError:
+        pass
 
 
 class MpesaError(Exception):
@@ -125,7 +126,10 @@ def _http(method: str, url: str, headers: dict, body: dict | None = None) -> tup
         **headers, "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return resp.status, json.loads(resp.read() or b"{}")
+            try:
+                return resp.status, json.loads(resp.read() or b"{}")
+            except ValueError:  # not JSON, e.g. a web page from the wrong address
+                return resp.status, {}
     except urllib.error.HTTPError as e:  # Daraja sends useful JSON with 4xx/5xx too
         try:
             return e.code, json.loads(e.read() or b"{}")
@@ -190,10 +194,14 @@ def test_server(s: Settings) -> None:
 
 
 def fetch_result(s: Settings, checkout_id: str) -> dict | None:
-    """The stored callback for a payment (receipt code, amount, phone), or None if not arrived yet."""
+    """The stored callback for a payment (receipt code, amount, phone), or None if not arrived yet
+    or the server can't be reached. Never raises: the payment itself is already confirmed."""
     if not has_server(s):
         return None
-    status, body = _server_get(s, f"/mpesa/result/{checkout_id}")
+    try:
+        status, body = _server_get(s, f"/mpesa/result/{checkout_id}")
+    except MpesaError:
+        return None
     _log("result", status, body)
     return body if status == 200 and "result_code" in body else None
 

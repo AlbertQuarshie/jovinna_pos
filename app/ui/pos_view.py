@@ -110,7 +110,7 @@ class CartRow(QFrame):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 6, 4, 6)
-        row.setSpacing(10)
+        row.setSpacing(6)
 
         thumb = QLabel()
         thumb.setPixmap(theme.product_pixmap(image_path, line.name, category, 40, 40, 8))
@@ -120,10 +120,12 @@ class CartRow(QFrame):
         text.setSpacing(1)
         name = QLabel(line.name)
         name.setStyleSheet("font-weight: bold; font-size: 13px;")
-        name.setMaximumWidth(150)
+        name.setMaximumWidth(112)
         name.setToolTip(line.name)
-        fm = QFontMetrics(name.font())
-        name.setText(fm.elidedText(line.name, Qt.TextElideMode.ElideRight, 150))
+        bold = QFont(theme.FONT_TEXT)
+        bold.setPixelSize(13)
+        bold.setBold(True)  # measure in the bold font it's shown in, so long names can't push the total off
+        name.setText(QFontMetrics(bold).elidedText(line.name, Qt.TextElideMode.ElideRight, 108))
         each = QLabel(f"{money(line.unit_price)} each")
         each.setProperty("role", "faint")
         text.addWidget(name)
@@ -148,7 +150,7 @@ class CartRow(QFrame):
         total = QLabel(money(line.line_total))
         total.setFont(theme.mono(13, bold=True))
         total.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        total.setMinimumWidth(78)
+        total.setMinimumWidth(64)
         row.addWidget(total)
 
         remove = theme.button("", "x", "ghost", "Remove")

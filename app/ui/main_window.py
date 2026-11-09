@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.db.models import User
+from app.services import app_settings
 from app.ui import theme
 from app.ui.pos_view import PosView
 from app.ui.products_view import ProductsView
@@ -19,6 +20,7 @@ from app.ui.users_view import UsersView
 
 class MainWindow(QMainWindow):
     logged_out = Signal()
+    rebuild_requested = Signal()  # after a theme change: rebuild the window in the new colours
 
     def __init__(self, user: User):
         super().__init__()
@@ -36,7 +38,7 @@ class MainWindow(QMainWindow):
                 ("package", "Products", "Prices, stock, photos and barcode labels", ProductsView()),
                 ("chart-bar", "Reports", "Sales, best sellers and end-of-day cash-up", ReportsView()),
                 ("users", "Users", "Staff accounts and passwords", UsersView()),
-                ("gear-six", "Settings", "M-Pesa payments", SettingsView()),
+                ("gear-six", "Settings", "Appearance, shop details, backups and M-Pesa", SettingsView()),
             ]
         self.pages = pages
 
@@ -146,6 +148,12 @@ class MainWindow(QMainWindow):
         self.clock.setProperty("role", "muted")
         self.clock.setFont(theme.mono(13))
         top.addWidget(self.clock, alignment=Qt.AlignmentFlag.AlignTop)
+        light = theme.MODE == "light"
+        theme_btn = theme.button("", "moon" if light else "sun", "ghost",
+                                 "Switch to dark mode" if light else "Switch to light mode")
+        theme_btn.setIconSize(QSize(20, 20))
+        theme_btn.clicked.connect(lambda: self.change_theme("dark" if light else "light"))
+        top.addWidget(theme_btn, alignment=Qt.AlignmentFlag.AlignTop)
         self._tick()
         timer = QTimer(self, interval=15_000, timeout=self._tick)
         timer.start()
@@ -167,6 +175,18 @@ class MainWindow(QMainWindow):
         self.subtitle.setText(subtitle)
         self.stack.setCurrentWidget(widget)
 
+    def current_page(self) -> int:
+        return self.stack.currentIndex()
+
+    def change_theme(self, mode: str):
+        """Save the choice, restyle the app, and ask for the window to be rebuilt in the new colours."""
+        if mode == theme.MODE:
+            return
+        app_settings.save(theme=mode)
+        theme.set_mode(mode)
+        theme.apply(QApplication.instance())
+        self.rebuild_requested.emit()
+
     def on_logout(self):
         if self.pos.cart:
             answer = QMessageBox.question(self, "Log out", "There are items in the cart. Discard them and log out?")
@@ -177,6 +197,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         super().closeEvent(event)
+        if getattr(self, "_replaced", False):
+            return  # a new window in the other theme has taken over
         if getattr(self, "_logging_out", False):
             self.logged_out.emit()  # back to the login screen
         else:
