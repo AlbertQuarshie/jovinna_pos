@@ -17,6 +17,7 @@ class CartLine:
     unit_cost: Decimal
     quantity: int
     stock_qty: int
+    unlimited: bool = False  # a service: no stock limit
 
     @property
     def line_total(self) -> Decimal:
@@ -56,9 +57,10 @@ def complete_sale(cart: list[CartLine], amount_paid: Decimal, payment_method: st
         )
         for line in cart:
             product = session.get(Product, line.product_id)
-            if product.stock_qty < line.quantity:
-                raise SaleError(f"Not enough stock for {product.name} (only {product.stock_qty} left).")
-            product.stock_qty -= line.quantity
+            if not product.is_service:  # services have no stock to check or reduce
+                if product.stock_qty < line.quantity:
+                    raise SaleError(f"Not enough stock for {product.name} (only {product.stock_qty} left).")
+                product.stock_qty -= line.quantity
             sale.items.append(SaleItem(
                 product_id=product.id, quantity=line.quantity, unit_price=line.unit_price,
                 unit_cost=line.unit_cost, line_total=line.line_total,

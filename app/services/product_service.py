@@ -38,7 +38,7 @@ def _category_id(session, main: str, sub: str) -> int | None:
     """Id of `sub` under `main` (or of `main` itself when sub is blank), creating them if new."""
     main, sub = main.strip(), sub.strip()
     if main not in config.MAIN_CATEGORIES:
-        raise ProductError(f"Choose a category: {' or '.join(config.MAIN_CATEGORIES)}.")
+        raise ProductError(f"Choose a category: {', '.join(config.MAIN_CATEGORIES)}.")
     parent = session.scalar(select(Category).where(Category.name == main, Category.parent_id.is_(None)))
     if parent is None:
         parent = Category(name=main)

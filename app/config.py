@@ -17,7 +17,9 @@ CURRENCY = "KES"
 
 # The shop's main product groups. Always present; subcategories (Chargers, Pens…) are added under
 # them when adding products.
-MAIN_CATEGORIES = ["Accessories", "Stationery"]
+MAIN_CATEGORIES = ["Accessories", "Stationery", "Services"]
+# Products in this main category are services (repairs, printing, fitting…): no stock to count, never run out
+SERVICE_CATEGORY = "Services"
 
 RECEIPT_FOOTER = "Welcome Back Anytime"
 

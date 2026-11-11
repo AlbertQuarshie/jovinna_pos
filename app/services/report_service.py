@@ -4,9 +4,10 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import Numeric, func, select
+from sqlalchemy.orm import joinedload
 
 from app.db.database import SessionLocal
-from app.db.models import Product, Sale, SaleItem, User
+from app.db.models import Category, Product, Sale, SaleItem, User
 
 MONEY = Numeric(12, 2)
 
@@ -101,7 +102,9 @@ def sales_list(start: datetime, end: datetime) -> list[tuple[int, datetime, str,
 
 def low_stock() -> list[Product]:
     with SessionLocal() as session:
-        return list(session.scalars(
-            select(Product).where(Product.is_active.is_(True), Product.stock_qty <= Product.reorder_level)
+        products = session.scalars(
+            select(Product).options(joinedload(Product.category).joinedload(Category.parent))
+            .where(Product.is_active.is_(True), Product.stock_qty <= Product.reorder_level)
             .order_by(Product.stock_qty, Product.name)
-        ))
+        ).all()
+    return [p for p in products if not p.is_service]  # services never run low

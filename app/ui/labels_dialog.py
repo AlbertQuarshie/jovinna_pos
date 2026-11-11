@@ -30,7 +30,7 @@ class LabelsDialog(QDialog):
             self.table.setItem(r, 1, QTableWidgetItem(p.barcode))
             spin = QSpinBox()
             spin.setRange(0, 1000)
-            spin.setValue(max(p.stock_qty, 1))  # default: one label per item in stock
+            spin.setValue(1 if p.is_service else max(p.stock_qty, 1))  # default: one label per item in stock
             self.copies.append(spin)
             self.table.setCellWidget(r, 2, spin)
 

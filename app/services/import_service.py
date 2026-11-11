@@ -116,7 +116,7 @@ def read_sheet(path: str | Path) -> list[ImportRow]:
         main = _text(get("main"))
         r.main = mains.get(main.lower(), "")
         if not r.main:
-            p.append(f"category must be {' or '.join(config.MAIN_CATEGORIES)}" + (f" (not '{main}')" if main else ""))
+            p.append(f"category must be {', '.join(config.MAIN_CATEGORIES[:-1])} or {config.MAIN_CATEGORIES[-1]}" + (f" (not '{main}')" if main else ""))
         r.sub = _text(get("sub"))
         price = _text(get("price")).replace(",", "")
         try:

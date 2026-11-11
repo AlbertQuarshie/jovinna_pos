@@ -36,7 +36,7 @@ class ProductTileDelegate(QStyledItemDelegate):
         p: Product = index.data(Qt.ItemDataRole.UserRole)
         r = QRectF(option.rect).adjusted(5, 5, -5, -5)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        out = p.stock_qty <= 0
+        out = p.stock_qty <= 0 and not p.is_service  # services never run out
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -68,7 +68,9 @@ class ProductTileDelegate(QStyledItemDelegate):
         small = QFont(theme.FONT_TEXT)
         small.setPixelSize(11)
         painter.setFont(small)
-        if out:
+        if p.is_service:
+            colour, stock = theme.INFO, "Service"
+        elif out:
             colour, stock = theme.DANGER, "Out of stock"
         else:
             colour = theme.ACCENT if p.stock_qty <= p.reorder_level else theme.FAINT
@@ -513,7 +515,7 @@ class PosView(QWidget):
     def add_to_cart(self, product: Product):
         existing = next((l for l in self.cart if l.product_id == product.id), None)
         in_cart = existing.quantity if existing else 0
-        if in_cart + 1 > product.stock_qty:
+        if not product.is_service and in_cart + 1 > product.stock_qty:
             QMessageBox.warning(self, "Out of stock", f"Only {product.stock_qty} of {product.name} in stock.")
             self.scan_input.setFocus()
             return
@@ -523,13 +525,13 @@ class PosView(QWidget):
             self.cart.append(CartLine(
                 product_id=product.id, barcode=product.barcode, name=product.name,
                 unit_price=Decimal(product.selling_price), unit_cost=Decimal(product.cost_price),
-                quantity=1, stock_qty=product.stock_qty,
+                quantity=1, stock_qty=product.stock_qty, unlimited=product.is_service,
             ))
         self.refresh_cart()
 
     def change_qty(self, line: CartLine, delta: int):
         new_qty = line.quantity + delta
-        if new_qty > line.stock_qty:
+        if not line.unlimited and new_qty > line.stock_qty:
             QMessageBox.warning(self, "Out of stock", f"Only {line.stock_qty} of {line.name} in stock.")
             return
         if new_qty <= 0:

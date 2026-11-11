@@ -69,6 +69,11 @@ class ProductDialog(QDialog):
         form.addRow(f"Price ({config.CURRENCY}):", self.price)
         form.addRow("Stock qty:", self.stock)
         form.addRow("Low-stock alert at:", self.reorder)
+        self.form = form
+        self.service_note = QLabel("Services have unlimited stock: there's nothing to count.")
+        self.service_note.setProperty("role", "faint")
+        self.service_note.setWordWrap(True)
+        form.addRow("", self.service_note)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Save).setProperty("variant", "primary")
@@ -129,6 +134,10 @@ class ProductDialog(QDialog):
 
     def on_main_changed(self, main: str):
         """Only offer the subcategories that belong to the chosen main category."""
+        service = main == config.SERVICE_CATEGORY  # services: no stock to enter
+        self.form.setRowVisible(self.stock, not service)
+        self.form.setRowVisible(self.reorder, not service)
+        self.form.setRowVisible(self.service_note, service)
         typed = self.subcategory.currentText()
         self.subcategory.clear()
         self.subcategory.addItems(self.tree.get(main, []))
@@ -197,12 +206,14 @@ SORTS = [
     ("Stock: low to high", "stock", False), ("Stock: high to low", "stock", True),
     ("Category", "category", False), ("Newest first", "newest", True),
 ]
-STOCK_FILTERS = ["All stock levels", "In stock", "Low stock", "Out of stock"]
+STOCK_FILTERS = ["All stock levels", "In stock", "Low stock", "Out of stock", "Service"]
 # table column -> sort key, for clicking the column headers
 COLUMN_SORT = {1: "name", 2: "barcode", 3: "category", 4: "price", 5: "stock", 6: "status"}
 
 
 def stock_state(p: Product) -> str:
+    if p.is_service:
+        return "Service"
     if p.stock_qty <= 0:
         return "Out of stock"
     return "Low stock" if p.stock_qty <= p.reorder_level else "In stock"
@@ -214,7 +225,7 @@ def sort_value(p: Product, key: str):
     return {
         "name": p.name.lower(), "barcode": p.barcode, "category": (cat, p.name.lower()),
         "price": p.selling_price, "stock": p.stock_qty, "newest": p.id,
-        "status": (not p.is_active, ["Out of stock", "Low stock", "In stock"].index(stock_state(p))),
+        "status": (not p.is_active, ["Out of stock", "Low stock", "In stock", "Service"].index(stock_state(p))),
     }[key]
 
 
@@ -369,7 +380,7 @@ class ProductsView(QWidget):
                 self.table.selectRow(r)
 
         total = sum(1 for p in self.all_products if p.is_active or self.show_inactive.isChecked())
-        low = sum(1 for p in self.all_products if p.is_active and stock_state(p) != "In stock")
+        low = sum(1 for p in self.all_products if p.is_active and stock_state(p) in ("Out of stock", "Low stock"))
         shown = f"{len(self.products)} products" if len(self.products) == total \
             else f"Showing {len(self.products)} of {total} products"
         self.count_label.setText(shown + (f"   ·   <span style='color:{theme.DANGER}'>{low} low or out of stock</span>"
@@ -414,12 +425,12 @@ class ProductsView(QWidget):
         self.table.setRowCount(len(self.products))
         for r, p in enumerate(self.products):
             state = stock_state(p)
-            low = p.is_active and state != "In stock"
+            low = p.is_active and state in ("Out of stock", "Low stock")
             status = "Hidden" if not p.is_active else state
             state_colour = theme.FAINT if not p.is_active else {
-                "Out of stock": theme.DANGER, "Low stock": theme.ACCENT}.get(state, theme.SUCCESS)
+                "Out of stock": theme.DANGER, "Low stock": theme.ACCENT, "Service": theme.INFO}.get(state, theme.SUCCESS)
             values = ["", p.name, p.barcode, p.category_label,
-                      money(p.selling_price), str(p.stock_qty), status]
+                      money(p.selling_price), "∞" if p.is_service else str(p.stock_qty), status]
             for c, v in enumerate(values):
                 item = QTableWidgetItem(v)
                 if c in (4, 5):
@@ -470,6 +481,9 @@ class ProductsView(QWidget):
         p = self.selected()
         if p is None:
             QMessageBox.information(self, "Select a product", "Click a product in the list first.")
+            return
+        if p.is_service:
+            QMessageBox.information(self, "Add stock", f"'{p.name}' is a service, so it has no stock to add.")
             return
         qty, ok = QInputDialog.getInt(self, "Add stock", f"How many '{p.name}' received?\n"
                                       f"(currently {p.stock_qty} in stock)", 1, 1, 1_000_000)

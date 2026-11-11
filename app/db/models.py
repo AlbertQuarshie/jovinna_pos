@@ -4,6 +4,8 @@ from decimal import Decimal
 from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app import config
+
 
 class Base(DeclarativeBase):
     pass
@@ -50,6 +52,11 @@ class Product(Base):
     @property
     def sub_category(self) -> str:
         return self.category.name if self.category and self.category.parent else ""
+
+    @property
+    def is_service(self) -> bool:
+        """Services have unlimited stock: nothing to count, they never run out."""
+        return self.main_category == config.SERVICE_CATEGORY
 
     @property
     def category_label(self) -> str:
