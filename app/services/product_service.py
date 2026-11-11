@@ -68,6 +68,25 @@ def search_products(text: str = "", include_inactive: bool = False) -> list[Prod
         return list(session.scalars(stmt))
 
 
+SERVICE_PREFIX = "SVC"
+
+
+def is_service_code(code: str) -> bool:
+    return code.startswith(SERVICE_PREFIX)
+
+
+def _service_code(product_id: int | None) -> str:
+    """Hidden internal code for a service: keeps its existing one, or the next free SVC00001…"""
+    with SessionLocal() as session:
+        if product_id:
+            current = session.scalar(select(Product.barcode).where(Product.id == product_id))
+            if current and is_service_code(current):
+                return current
+        codes = session.scalars(select(Product.barcode).where(Product.barcode.like(f"{SERVICE_PREFIX}%"))).all()
+    used = [int(c[len(SERVICE_PREFIX):]) for c in codes if c[len(SERVICE_PREFIX):].isdigit()]
+    return f"{SERVICE_PREFIX}{max(used, default=0) + 1:05d}"
+
+
 def ean13_check_digit(first12: str) -> str:
     total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(first12))
     return str((10 - total % 10) % 10)
@@ -89,10 +108,15 @@ def save_product(product_id: int | None, *, barcode: str, name: str, main_catego
                  subcategory: str = "",
                  selling_price: Decimal, stock_qty: int,
                  reorder_level: int, image: str | None | object = KEEP) -> None:
-    """image: new photo file name (from image_service.import_image), None to remove it, or KEEP."""
+    """image: new photo file name (from image_service.import_image), None to remove it, or KEEP.
+    Services don't have barcodes: they get a hidden internal code (SVC00001…) instead."""
     barcode, name = barcode.strip(), name.strip()
-    if not barcode or not name:
-        raise ProductError("Barcode and name are required.")
+    if main_category.strip() == config.SERVICE_CATEGORY:
+        barcode = barcode if is_service_code(barcode) else _service_code(product_id)
+    if not name:
+        raise ProductError("Enter the product name.")
+    if not barcode:
+        raise ProductError("Scan or type the barcode, or click Generate.")
     if selling_price <= 0:
         raise ProductError("Selling price must be greater than zero.")
 

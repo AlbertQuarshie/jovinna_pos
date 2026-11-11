@@ -101,6 +101,9 @@ def read_sheet(path: str | Path) -> list[ImportRow]:
 
     with SessionLocal() as session:
         existing = set(session.scalars(select(Product.barcode)))
+        # Services have no barcode, so they're matched by name instead
+        services = {name.lower(): code for name, code in session.execute(
+            select(Product.name, Product.barcode).where(Product.barcode.like(f"{ps.SERVICE_PREFIX}%")))}
     mains = {m.lower(): m for m in config.MAIN_CATEGORIES}
     seen_barcodes: dict[str, int] = {}
     result = []
@@ -128,7 +131,11 @@ def read_sheet(path: str | Path) -> list[ImportRow]:
         r.stock = _int(get("stock"), 0, "stock qty", p)
         r.reorder = _int(get("reorder"), 5, "low-stock alert", p)
         r.barcode = _text(get("barcode"))
-        if r.barcode:
+        if r.main == config.SERVICE_CATEGORY:
+            # Services don't have barcodes: ignore that column and match an existing service by name
+            r.barcode = services.get(r.name.lower(), "")
+            r.stock = 0
+        elif r.barcode:
             if r.barcode in seen_barcodes:
                 p.append(f"barcode is also used on row {seen_barcodes[r.barcode]}")
             seen_barcodes.setdefault(r.barcode, n)

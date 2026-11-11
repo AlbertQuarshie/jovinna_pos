@@ -41,7 +41,7 @@ class ProductDialog(QDialog):
         gen_btn = theme.button("Generate", "magic-wand")
         gen_btn.setToolTip("Create an in-store barcode for items without one")
         gen_btn.clicked.connect(lambda: self.barcode.setText(ps.generate_internal_barcode()))
-        barcode_row = QHBoxLayout()
+        barcode_row = self.barcode_row = QHBoxLayout()
         barcode_row.addWidget(self.barcode)
         barcode_row.addWidget(gen_btn)
 
@@ -128,13 +128,17 @@ class ProductDialog(QDialog):
             self.on_main_changed(self.main_category.currentText())
             self.subcategory.setCurrentText(ProductDialog.last_sub if ProductDialog.last_main ==
                                             self.main_category.currentText() else "")
-            self.barcode.setFocus()
+            is_service = self.main_category.currentText() == config.SERVICE_CATEGORY
+            (self.name if is_service else self.barcode).setFocus()  # services have no barcode box
         self.main_category.currentTextChanged.connect(self.update_preview)
         self.update_preview()
 
     def on_main_changed(self, main: str):
         """Only offer the subcategories that belong to the chosen main category."""
-        service = main == config.SERVICE_CATEGORY  # services: no stock to enter
+        service = main == config.SERVICE_CATEGORY  # services: no barcode and no stock to enter
+        self.form.setRowVisible(self.barcode_row, not service)
+        if not service and ps.is_service_code(self.barcode.text().strip()):
+            self.barcode.clear()  # moved out of Services: it now needs a real barcode
         self.form.setRowVisible(self.stock, not service)
         self.form.setRowVisible(self.reorder, not service)
         self.form.setRowVisible(self.service_note, service)
@@ -431,6 +435,8 @@ class ProductsView(QWidget):
                 "Out of stock": theme.DANGER, "Low stock": theme.ACCENT, "Service": theme.INFO}.get(state, theme.SUCCESS)
             values = ["", p.name, p.barcode, p.category_label,
                       money(p.selling_price), "∞" if p.is_service else str(p.stock_qty), status]
+            if p.is_service:
+                values[2] = "—"  # services have no barcode (only a hidden internal code)
             for c, v in enumerate(values):
                 item = QTableWidgetItem(v)
                 if c in (4, 5):
@@ -492,9 +498,12 @@ class ProductsView(QWidget):
             self.refresh()
 
     def on_print_labels(self):
-        products = [p for p in self.selected_products() if p.is_active]
+        selected = [p for p in self.selected_products() if p.is_active]
+        products = [p for p in selected if not p.is_service]  # services have no barcode to print
         if not products:
             QMessageBox.information(self, "Select products",
+                                    "Services don't have barcode labels. Select one or more products."
+                                    if selected else
                                     "Select one or more products first (Ctrl/Shift + click for several).")
             return
         LabelsDialog(self, products).exec()

@@ -93,7 +93,8 @@ class ImportDialog(QDialog):
             result = {"new": "New", "update": "Update"}.get(r.action, "Error: " + "; ".join(r.problems))
             values = [str(r.row), result, r.name, " › ".join(x for x in (r.main, r.sub) if x),
                       f"{r.price:,.2f}" if r.price is not None else "", str(r.stock),
-                      r.barcode or "(new)", r.photo.name if r.photo else ""]
+                      "—" if r.main == config.SERVICE_CATEGORY else (r.barcode or "(new)"),
+                      r.photo.name if r.photo else ""]
             for c, v in enumerate(values):
                 item = QTableWidgetItem(v)
                 if c == 1:

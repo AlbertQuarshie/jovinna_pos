@@ -441,7 +441,7 @@ class PosView(QWidget):
         for p in products:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, p)
-            item.setToolTip(f"{p.name}\nBarcode: {p.barcode}")
+            item.setToolTip(p.name if p.is_service else f"{p.name}\nBarcode: {p.barcode}")
             self.grid.addItem(item)
         self.grid.setUpdatesEnabled(True)
         self.filter_grid()
